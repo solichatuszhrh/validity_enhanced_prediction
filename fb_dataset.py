@@ -1,113 +1,134 @@
 #### DATA PREPARATION ####
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-from kmeans_pytorch import kmeans
-from sklearn.model_selection import train_test_split
-import seaborn as sns
+# Preparing dataset for training
+train = pd.read_csv("train.csv")
+train = train.rename(columns={"id": "userid","Factor2":"Factor_2","Factor3":"Factor_3"})
+with_count = pd.merge(train, country, on="userid")
+with_demo = pd.merge(with_count, demog, on="userid")
+y_train = (with_demo[["Factor_2","Factor_3"]])
+x_train = (with_demo.drop(["userid","Factor_2","Factor_3"], axis=1))
 
-# Import train data and test data
-df_train = pd.read_csv("train.csv")
-df_test = pd.read_csv("test.csv")
-df = pd.concat([df_train,df_test])
+# Convert birthday to timestamp and then to float
+x_train["birthday"] = pd.to_datetime(x_train["birthday"], errors="coerce")
 
-# Extract factor scores and convert to a PyTorch tensor
-factor_scores = df[['Factor2', 'Factor3']].values
-factor_scores_tensor = torch.tensor(factor_scores, dtype=torch.float)
+# Impute missing birthday with mean timestamp
+mean_timestamp = x_train["birthday"].dropna().apply(lambda x: x.timestamp()).mean()
+x_train["birthday"] = x_train["birthday"].fillna(datetime.fromtimestamp(mean_timestamp))
+x_train["birthday_float"] = x_train["birthday"].apply(lambda x: x.timestamp())
+x_train = x_train.drop("birthday", axis=1)
 
-# Extract user_ids
-user_ids = df['id'].values
+# Encode "country" and "locale"
+label_encoder_country = LabelEncoder()
+label_encoder_locale = LabelEncoder()
+x_train["country_encoded"] = label_encoder_country.fit_transform(x_train["country"])
+x_train["locale_encoded"] = label_encoder_locale.fit_transform(x_train["locale"])
+x_train = x_train.drop("country", axis=1)
+x_train = x_train.drop("locale", axis=1)
 
-# Number of clusters
-num_clusters = 5 #based on big five personaluty traits
+# Impute NaN values
+x_train = x_train.fillna(x_train.mean())
 
+# Preparing dataset for testing
+test = pd.read_csv("test.csv")
+test = test.rename(columns={"id": "userid","Factor2":"Factor_2","Factor3":"Factor_3"})
+test_count = pd.merge(test, country, on="userid")
+test_demo = pd.merge(test_count, demog, on="userid")
+y_test = (with_demo[["Factor_2","Factor_3"]])
+x_test = (with_demo.drop(["userid","Factor_2","Factor_3"], axis=1))
 
-#### PERFORM CLUSTERING ####
-# Perform K-Means clustering
-cluster_ids, cluster_centers = kmeans(
-    X=factor_scores_tensor, num_clusters=num_clusters, distance='euclidean', device=torch.device('cpu')
-)
+# Convert birth_date to timestamp and then to float
+x_test["birthday"] = pd.to_datetime(x_test["birthday"], errors="coerce")
 
-# Add cluster assignments to the dataframe
-df['cluster_id'] = cluster_ids.tolist()
+# Impute missing birth_date with mean timestamp
+mean_timestamp_test = x_test["birthday"].dropna().apply(lambda x: x.timestamp()).mean()
+x_test["birthday"] = x_test["birthday"].fillna(datetime.fromtimestamp(mean_timestamp))
+x_test["birthday_float"] = x_test["birthday"].apply(lambda x: x.timestamp())
+x_test = x_test.drop("birthday", axis=1)
 
-# Plot the clusters using Seaborn
-plt.figure(figsize=(10, 6))
-sns.scatterplot(x='Factor2', y='Factor3', hue='cluster_id', data=df, palette='viridis', s=100, legend='full')
-plt.title('Clusters based on Factor Scores')
-plt.xlabel('Factor 2')
-plt.ylabel('Factor 3')
-plt.legend(title='Cluster')
-plt.show()
+# Encode "country" and "locale"
+x_test["country_encoded"] = label_encoder_country.fit_transform(x_test["country"])
+x_test["locale_encoded"] = label_encoder_locale.fit_transform(x_test["locale"])
+x_test = x_test.drop("country", axis=1)
+x_test = x_test.drop("locale", axis=1)
 
-
-#### TRAIN A LASSO REGRESSION MODEL ####
-# Split the data into training and testing sets (again)
-X = df[['Factor2', 'Factor3']].values
-y = df['cluster_id'].values
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=351, random_state=42)
+# Impute NaN values 
+x_test = x_test.fillna(x_test.mean())
 
 # Convert to PyTorch tensors
-X_train_tensor = torch.tensor(X_train, dtype=torch.float)
-y_train_tensor = torch.tensor(y_train, dtype=torch.float).reshape(-1, 1)
-X_test_tensor = torch.tensor(X_test, dtype=torch.float)
-y_test_tensor = torch.tensor(y_test, dtype=torch.float).reshape(-1, 1)
+X_train = x_train.values
+Y_train = y_train.values
+X_test = x_test.values
+Y_test = y_test.values
 
-# Define a simple linear regression model
-class LassoRegression(nn.Module):
+X_tensor = torch.tensor(X_train, dtype=torch.float32)
+Y_tensor = torch.tensor(Y_train, dtype=torch.float32)
+X_tensor_test = torch.tensor(X_test, dtype=torch.float32)
+Y_tensor_test = torch.tensor(Y_test, dtype=torch.float32)
+
+
+#### TRAIN THE MODEL ####
+# Build a regression model
+class RegressionModel(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
-        super(LassoRegression, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
-    
+        super(RegressionModel, self).__init__()
+        self.fc1 = torch.nn.Linear(input_dim, 128)
+        self.fc2 = torch.nn.Linear(128, output_dim)
+        
     def forward(self, x):
-        return self.linear(x)
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
-model = LassoRegression(input_dim=2, output_dim=1)
+# Initialize the model
+input_dim = X_tensor.shape[1]
+output_dim = Y_tensor.shape[1]
+model = RegressionModel(input_dim,output_dim)
 
-# Define Lasso loss function
-class LassoLoss(nn.Module):
-    def __init__(self, l1_lambda):
+# Display the model
+print(model)
+
+# Customize loss function to lasso regression
+class LassoLoss(torch.nn.Module):
+    def __init__(self, model, alpha=1.0):
         super(LassoLoss, self).__init__()
-        self.l1_lambda = l1_lambda
+        self.model = model
+        self.alpha = alpha
+        self.mse_loss = torch.nn.MSELoss()
 
-    def forward(self, y_pred, y_true, model):
-        mse_loss = nn.MSELoss()(y_pred, y_true)
-        l1_loss = sum(p.abs().sum() for p in model.parameters())
-        return mse_loss + self.l1_lambda * l1_loss
+    def forward(self, outputs, targets):
+        mse = self.mse_loss(outputs, targets)
+        l1_penalty = sum(param.abs().sum() for param in self.model.parameters())
+        loss = mse + self.alpha * l1_penalty
+        return loss
 
-# Hyperparameters
-learning_rate = 0.01
-num_epochs = 100
-l1_lambda = 0.1
+lasso_loss = LassoLoss(model, alpha=0.01)
 
-criterion = LassoLoss(l1_lambda=l1_lambda)
-optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+# Define the optimizer
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 # Training loop
-for epoch in range(num_epochs):
+epochs = 3000
+for epoch in range(epochs):
     model.train()
+    
+    # Zero the gradient buffers
     optimizer.zero_grad()
-    outputs = model(X_train_tensor)
-    loss = criterion(outputs, y_train_tensor, model)
+    
+    # Forward pass
+    outputs = model(X_tensor)
+    
+    # Calculate loss
+    loss = lasso_loss(outputs, Y_tensor)
+    
+    # Backward pass and optimize
     loss.backward()
     optimizer.step()
     
     if (epoch+1) % 10 == 0:
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+        print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
 
-
-#### MODEL EVALUATION ####
-# Evaluate the model
+# Model evaluation on the test set
 model.eval()
 with torch.no_grad():
-    y_pred_train = model(X_train_tensor)
-    y_pred_test = model(X_test_tensor)
-
-    train_loss = criterion(y_pred_train, y_train_tensor, model).item()
-    test_loss = criterion(y_pred_test, y_test_tensor, model).item()
-
-    print(f'Train Loss: {train_loss:.4f}')
-    print(f'Test Loss: {test_loss:.4f}')
-
+    test_outputs = model(X_tensor_test)
+    test_loss = lasso_loss(test_outputs, Y_tensor_test)
+    print(f'Test Loss: {test_loss.item():.4f}')
