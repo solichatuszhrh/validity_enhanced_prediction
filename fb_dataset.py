@@ -1,11 +1,26 @@
+#### IMPORT LIBRARIEES ####
+import pandas as pd
+import torch
+from sklearn.preprocessing import LabelEncoder
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+
 #### DATA PREPARATION ####
+# Upload additional information
+demog = pd.read_csv("demog.csv")
+country = pd.read_csv("country.csv")
+lda600 = pd.read_csv("LDA600.csv",header=None)
+lda600 = lda600.rename(columns={lda600.columns[0]: "userid" })
+
 # Preparing dataset for training
 train = pd.read_csv("train.csv")
 train = train.rename(columns={"id": "userid","Factor2":"Factor_2","Factor3":"Factor_3"})
 with_count = pd.merge(train, country, on="userid")
 with_demo = pd.merge(with_count, demog, on="userid")
-y_train = (with_demo[["Factor_2","Factor_3"]])
-x_train = (with_demo.drop(["userid","Factor_2","Factor_3"], axis=1))
+with_lda = pd.merge(with_demo, lda600, on="userid")
+y_train = (with_lda[["Factor_2","Factor_3"]])
+x_train = (with_lda.drop(["userid","Factor_2","Factor_3"], axis=1))
 
 # Convert birthday to timestamp and then to float
 x_train["birthday"] = pd.to_datetime(x_train["birthday"], errors="coerce")
@@ -32,8 +47,9 @@ test = pd.read_csv("test.csv")
 test = test.rename(columns={"id": "userid","Factor2":"Factor_2","Factor3":"Factor_3"})
 test_count = pd.merge(test, country, on="userid")
 test_demo = pd.merge(test_count, demog, on="userid")
-y_test = (with_demo[["Factor_2","Factor_3"]])
-x_test = (with_demo.drop(["userid","Factor_2","Factor_3"], axis=1))
+test_lda = pd.merge(test_demo, lda600, on="userid")
+y_test = (test_lda[["Factor_2","Factor_3"]])
+x_test = (test_lda.drop(["userid","Factor_2","Factor_3"], axis=1))
 
 # Convert birth_date to timestamp and then to float
 x_test["birthday"] = pd.to_datetime(x_test["birthday"], errors="coerce")
@@ -126,9 +142,19 @@ for epoch in range(epochs):
     if (epoch+1) % 10 == 0:
         print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
 
+#### MODEL EVALUATION ####
 # Model evaluation on the test set
 model.eval()
 with torch.no_grad():
     test_outputs = model(X_tensor_test)
     test_loss = lasso_loss(test_outputs, Y_tensor_test)
     print(f'Test Loss: {test_loss.item():.4f}')
+
+# Plot loss function
+plt.figure(figsize=(10, 5))
+plt.plot(loss_values, label='Training Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Epochs')
+plt.legend()
+plt.show()
