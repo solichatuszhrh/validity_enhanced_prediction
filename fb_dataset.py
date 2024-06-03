@@ -82,24 +82,21 @@ Y_tensor_test = torch.tensor(Y_test, dtype=torch.float32)
 
 
 #### TRAIN THE MODEL ####
-# Build a regression model
-class RegressionModel(torch.nn.Module):
+# Build a simple regression model
+class SimpleRegressionModel(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
-        super(RegressionModel, self).__init__()
-        self.fc1 = torch.nn.Linear(input_dim, 128)
-        self.fc2 = torch.nn.Linear(128, output_dim)
+        super(SimpleRegressionModel, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim)
         
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.linear(x)
 
 # Initialize the model
-input_dim = X_tensor.shape[1]
-output_dim = Y_tensor.shape[1]
-model = RegressionModel(input_dim,output_dim)
+input_dim = X_tensor.shape[1]  
+output_dim = 2  
+model = SimpleRegressionModel(input_dim, output_dim)
 
-# Display the model
+# Print the model to check its architecture
 print(model)
 
 # Customize loss function to lasso regression
@@ -122,7 +119,7 @@ lasso_loss = LassoLoss(model, alpha=0.01)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 # Training loop
-epochs = 3000
+epochs = 1000
 for epoch in range(epochs):
     model.train()
     
