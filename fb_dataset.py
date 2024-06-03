@@ -82,7 +82,7 @@ Y_tensor_test = torch.tensor(Y_test, dtype=torch.float32)
 
 
 #### TRAIN THE MODEL ####
-# Build a simple regression model
+# Build a regression model
 class SimpleRegressionModel(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
         super(SimpleRegressionModel, self).__init__()
