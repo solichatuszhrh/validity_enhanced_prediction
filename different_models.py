@@ -127,6 +127,7 @@ plt.title('Training Loss Over Epochs')
 plt.legend()
 plt.show()
 
+# Store the loss function
 lda_only = [test_loss_lasso,test_loss]
 lda_only_loss = pd.DataFrame(lda_only).astype("float")
 
@@ -333,6 +334,7 @@ plt.title('Training Loss Over Epochs')
 plt.legend()
 plt.show()
 
+# Store the loss function
 all = [test_loss_lasso,test_loss]
 all_loss = pd.DataFrame(all).astype("float")
 
