@@ -416,6 +416,799 @@ plt.title('Training Loss Over Epochs')
 plt.legend()
 plt.show()
 
-all = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2, test_loss_lasso_2]
-all_loss = pd.DataFrame(all).astype("float")
-print(all_loss)
+
+### DIFFERENT PREDICTORS USING K_FOLD ###
+#### IMPORT LIBRARIEES ####
+import pandas as pd
+import glob
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+
+#### DATA PREPROCESSING ####
+# Define the path to the CSV files
+path = 'data'  # Update this to your actual path
+csv_files = glob.glob(os.path.join(path, "*.csv"))
+
+def preprocess_data(file_path):
+    csv_files = glob.glob(os.path.join(path, "*.csv"))
+    dfs = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file)
+            if not df.empty:
+                # Rename the first column
+                first_column_name = df.columns[0]
+                df = df.rename(columns={first_column_name: 'userid'})
+                dfs.append(df)
+            else:
+                print(f"File {file} is empty.")
+
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
+
+    # Verify all DataFrames are read correctly
+    if not dfs:
+        print("No DataFrames to merge.")
+    else:
+        # Assuming 'common_column_name' is the common column used for merging
+        common_column = 'userid'  # This should match the renamed first column
+
+        # Merge DataFrames iteratively
+        merged_df = dfs[0]
+        for df in dfs[1:]:
+            if common_column in merged_df.columns and common_column in df.columns:
+                merged_df = pd.merge(merged_df, df, on=common_column)
+            else:
+                print(f"Common column '{common_column}' not found in one of the DataFrames.")
+                break
+
+    return merged_df
+
+
+
+#### CHANGE DATA TYPE TO TENSOR ####
+def dataframe_to_tensor_with_missing(df, target_column):
+    # Initialize LabelEncoder for string columns
+    label_encoders = {}
+    
+    # Create a dictionary to store tensor parts
+    tensor_parts = {}
+
+    # Exclude target column from features
+    features = df.drop(["Factor2","Factor3"], axis=1)
+
+    for column in features.columns:
+        if pd.api.types.is_numeric_dtype(features[column]):
+            # Fill missing values with mean or any strategy you prefer
+            features[column] = features[column].fillna(features[column].mean())
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values, dtype=torch.float32)
+        
+        elif pd.api.types.is_string_dtype(features[column]) or features[column].dtype == 'object':
+            # Fill missing values with a placeholder, e.g., 'missing'
+            features[column] = features[column].fillna('missing')
+            le = LabelEncoder()
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(le.fit_transform(features[column].values), dtype=torch.float32)
+                label_encoders[column] = le
+        
+        elif pd.api.types.is_datetime64_any_dtype(features[column]):
+            # Fill missing datetime values with a placeholder or strategy
+            features[column] = features[column].fillna(pd.Timestamp('1970-01-01'))
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values.astype(np.int64) // 10**9, dtype=torch.float32)
+        
+        else:
+            raise ValueError(f"Unsupported column type: {features[column].dtype} in column {column}")
+
+    # Check if any tensors were created
+    if not tensor_parts:
+        raise ValueError("No valid columns found for conversion to tensors.")
+
+    # Stack tensors along the second dimension (i.e., columns)
+    tensors = torch.stack([tensor_parts[col] for col in features.columns if col in tensor_parts], dim=1)
+
+    # Get target variable tensor
+    target_tensor = torch.tensor(df[target_column].values, dtype=torch.float32)
+
+    return tensors, target_tensor, label_encoders
+
+
+df = pd.DataFrame(preprocess_data("data"))
+
+target_column = ["Factor2","Factor3"]
+features_tensor, target_tensor, encoders = dataframe_to_tensor_with_missing(df, target_column)
+
+# Split data into training and testing sets
+X_train, X_test, Y_train, Y_test = train_test_split(features_tensor, target_tensor, test_size=0.2, random_state=12345)
+
+print("X_train shape:", X_train.shape)
+print("X_test shape:", X_test.shape)
+print("Y_train shape:", Y_train.shape)
+print("Y_test shape:", Y_test.shape)
+
+
+#### BASELINE MODEL ####
+# Compute the mean of Y_train for both outputs
+mean_f2_train = torch.mean(Y_train[:, 0])
+mean_f3_train = torch.mean(Y_train[:, 1])
+
+# Create predictions for the test set
+f2_pred = mean_f2_train.repeat(Y_test.shape[0])
+f3_pred = mean_f3_train.repeat(Y_test.shape[0])
+print(f'Mean Prediction for Factor 2: {mean_f2_train.item():.4f}')
+print(f'Mean Prediction for Factor 3: {mean_f3_train.item():.4f}')
+print(f'Test MSE Baseline (Factor 2): {mse_f2.item():.4f}')
+print(f'Test MSE Baseline (Factor 3): {mse_f3.item():.4f}')
+
+# Stack predictions to match the shape of Y_test
+predictions = torch.stack((f2_pred, f3_pred), dim=1)
+
+# Calculate MSE for the test set
+mse_f2 = F.mse_loss(predictions[:, 0], Y_test[:, 0])
+mse_f3 = F.mse_loss(predictions[:, 1], Y_test[:, 1])
+
+# Build a simple regression model
+class SimpleRegressionModel(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(SimpleRegressionModel, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim)
+        
+    def forward(self, x):
+        return self.linear(x)
+
+# Print the model to check its architecture
+print(model)
+
+# Customize loss function to lasso regression
+class LassoLoss(torch.nn.Module):
+    def __init__(self, model, alpha=1.0):
+        super(LassoLoss, self).__init__()
+        self.model = model
+        self.alpha = alpha
+        self.mse_loss = torch.nn.MSELoss()
+
+    def forward(self, outputs, targets):
+        mse_1 = self.mse_loss(outputs[:,0], targets[:,0])
+        l1_penalty_1 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_1 = mse_1 + self.alpha * l1_penalty_1
+        mse_2 = self.mse_loss(outputs[:,1], targets[:,1])
+        l1_penalty_2 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_2 = mse_2 + self.alpha * l1_penalty_2
+        return loss_1, loss_2,
+
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+for train_index, test_index in kf.split(X_train):
+    X_train_fold, X_test_fold = X_train[train_index], X_train[test_index]
+    Y_train_fold, Y_test_fold = Y_train[train_index], Y_train[test_index]
+    
+    model = SimpleRegressionModel(X_train.shape[1], Y_train.shape[1])
+    lasso_loss = LassoLoss(model, alpha=0.01)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    train_loss_lasso_1 = []
+    train_loss_1 = []
+    train_loss_lasso_2 = []
+    train_loss_2 = []
+    
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X_train_fold)
+
+        # Calculate loss with lasso
+        loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+        loss_lasso_1.backward()
+        optimizer.step()
+
+        # Calculate loss without lasso
+        loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0])
+        loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1])
+        optimizer.step()
+        
+        # Append the losses to the lists
+        train_loss_lasso_1.append(loss_lasso_1.item())
+        train_loss_1.append(loss_1.item())
+        train_loss_lasso_2.append(loss_lasso_2.item())
+        train_loss_2.append(loss_2.item())
+    
+        if (epoch+1) % 50 == 0:
+            print(f' Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 2): {loss_lasso_1.item():.4f}, Loss (MSE) (Factor 2): {loss_1.item():.4f}')
+            print(f'Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 3): {loss_lasso_2.item():.4f}, Loss (MSE) (Factor 3): {loss_2.item():.4f}')
+
+   
+    model.eval()
+    with torch.no_grad():
+        test_outputs = model(X_test_fold)
+        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
+        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
+        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
+                
+        print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
+        print(f'Test Loss (MSE) (Factor 2): {test_loss_2.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_2.item():.4f}')
+
+
+# Plot the training loss over epochs
+plt.plot(train_loss_lasso_1, label='MSE With Lasso Factor 2')
+plt.plot(train_loss_1, label='MSE Without Lasso Factor 2')
+plt.plot(train_loss_lasso_2, label='MSE With Lasso Factor 3')
+plt.plot(train_loss_2, label='MSE Without Lasso Factor 3')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Epochs')
+plt.legend()
+plt.show()
+
+all_kfold = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2, test_loss_lasso_2]
+all_loss_kfold = pd.DataFrame(all_kfold).astype("float")
+print(all_loss_kfold)
+
+
+
+### AUGMENT DATA FROM THE PREVIOUS SETTING ###
+#### IMPORT LIBRARIEES ####
+import pandas as pd
+import glob
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+
+#### DATA PREPROCESSING ####
+# Define the path to the CSV files
+path = 'data'  # Update this to your actual path
+csv_files = glob.glob(os.path.join(path, "*.csv"))
+
+def preprocess_data(file_path):
+    csv_files = glob.glob(os.path.join(path, "*.csv"))
+    dfs = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file)
+            if not df.empty:
+                # Rename the first column
+                first_column_name = df.columns[0]
+                df = df.rename(columns={first_column_name: 'userid'})
+                dfs.append(df)
+            else:
+                print(f"File {file} is empty.")
+
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
+
+    # Verify all DataFrames are read correctly
+    if not dfs:
+        print("No DataFrames to merge.")
+    else:
+        # Assuming 'common_column_name' is the common column used for merging
+        common_column = 'userid'  # This should match the renamed first column
+
+        # Merge DataFrames iteratively
+        merged_df = dfs[0]
+        for df in dfs[1:]:
+            if common_column in merged_df.columns and common_column in df.columns:
+                merged_df = pd.merge(merged_df, df, on=common_column)
+            else:
+                print(f"Common column '{common_column}' not found in one of the DataFrames.")
+                break
+
+    return merged_df
+
+
+
+#### CHANGE DATA TYPE TO TENSOR ####
+def dataframe_to_tensor_with_missing(df, target_column):
+    # Initialize LabelEncoder for string columns
+    label_encoders = {}
+    
+    # Create a dictionary to store tensor parts
+    tensor_parts = {}
+
+    # Exclude target column from features
+    features = df.drop(["Factor2","Factor3"], axis=1)
+
+    for column in features.columns:
+        if pd.api.types.is_numeric_dtype(features[column]):
+            # Fill missing values with mean or any strategy you prefer
+            features[column] = features[column].fillna(features[column].mean())
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values, dtype=torch.float32)
+        
+        elif pd.api.types.is_string_dtype(features[column]) or features[column].dtype == 'object':
+            # Fill missing values with a placeholder, e.g., 'missing'
+            features[column] = features[column].fillna('missing')
+            le = LabelEncoder()
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(le.fit_transform(features[column].values), dtype=torch.float32)
+                label_encoders[column] = le
+        
+        elif pd.api.types.is_datetime64_any_dtype(features[column]):
+            # Fill missing datetime values with a placeholder or strategy
+            features[column] = features[column].fillna(pd.Timestamp('1970-01-01'))
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values.astype(np.int64) // 10**9, dtype=torch.float32)
+        
+        else:
+            raise ValueError(f"Unsupported column type: {features[column].dtype} in column {column}")
+
+    # Check if any tensors were created
+    if not tensor_parts:
+        raise ValueError("No valid columns found for conversion to tensors.")
+
+    # Stack tensors along the second dimension (i.e., columns)
+    tensors = torch.stack([tensor_parts[col] for col in features.columns if col in tensor_parts], dim=1)
+
+    # Get target variable tensor
+    target_tensor = torch.tensor(df[target_column].values, dtype=torch.float32)
+
+    return tensors, target_tensor, label_encoders
+
+
+df = pd.DataFrame(preprocess_data("data"))
+
+target_column = ["Factor2","Factor3"]
+features_tensor, target_tensor, encoders = dataframe_to_tensor_with_missing(df, target_column)
+
+# Split data into training and testing sets
+X_train, X_test, Y_train, Y_test = train_test_split(features_tensor, target_tensor, test_size=0.2, random_state=12345)
+
+print("X_train shape:", X_train.shape)
+print("X_test shape:", X_test.shape)
+print("Y_train shape:", Y_train.shape)
+print("Y_test shape:", Y_test.shape)
+
+# Function to augment data by adding Gaussian noise
+def augment_data(X, Y, num_augmentations=5, noise_std=0.1):
+    augmented_X = []
+    augmented_Y = []
+    
+    for _ in range(num_augmentations):
+        noise = torch.normal(mean=0, std=noise_std, size=X.shape)
+        augmented_X.append(X + noise)
+        augmented_Y.append(Y + noise[:, :Y.shape[1]])  # Apply noise to Y as well
+    
+    # Stack augmented data with the original data
+    augmented_X = torch.cat([X] + augmented_X, dim=0)
+    augmented_Y = torch.cat([Y] + augmented_Y, dim=0)
+    
+    return augmented_X, augmented_Y
+
+# Example data augmentation
+num_augmentations = 5  # Number of augmentations per original sample
+noise_std = 0.1  # Standard deviation of the noise
+
+augmented_X_train, augmented_Y_train = augment_data(X_train, Y_train, num_augmentations, noise_std)
+
+print(f'Original X_train shape: {X_train.shape}')
+print(f'Augmented X_train shape: {augmented_X_train.shape}')
+print(f'Original Y_train shape: {Y_train.shape}')
+print(f'Augmented Y_train shape: {augmented_Y_train.shape}')
+
+#### BASELINE MODEL ####
+# Compute the mean of Y_train for both outputs
+mean_f2_train = torch.mean(augmented_Y_train[:, 0])
+mean_f3_train = torch.mean(augmented_Y_train[:, 1])
+
+# Create predictions for the test set
+f2_pred = mean_f2_train.repeat(Y_test.shape[0])
+f3_pred = mean_f3_train.repeat(Y_test.shape[0])
+print(f'Mean Prediction for Factor 2: {mean_f2_train.item():.4f}')
+print(f'Mean Prediction for Factor 3: {mean_f3_train.item():.4f}')
+print(f'Test MSE Baseline (Factor 2): {mse_f2.item():.4f}')
+print(f'Test MSE Baseline (Factor 3): {mse_f3.item():.4f}')
+
+# Stack predictions to match the shape of Y_test
+predictions = torch.stack((f2_pred, f3_pred), dim=1)
+
+# Calculate MSE for the test set
+mse_f2 = F.mse_loss(predictions[:, 0], Y_test[:, 0])
+mse_f3 = F.mse_loss(predictions[:, 1], Y_test[:, 1])
+
+# Build a simple regression model
+class SimpleRegressionModel(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(SimpleRegressionModel, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim)
+        
+    def forward(self, x):
+        return self.linear(x)
+
+# Print the model to check its architecture
+print(model)
+
+# Customize loss function to lasso regression
+class LassoLoss(torch.nn.Module):
+    def __init__(self, model, alpha=1.0):
+        super(LassoLoss, self).__init__()
+        self.model = model
+        self.alpha = alpha
+        self.mse_loss = torch.nn.MSELoss()
+
+    def forward(self, outputs, targets):
+        mse_1 = self.mse_loss(outputs[:,0], targets[:,0])
+        l1_penalty_1 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_1 = mse_1 + self.alpha * l1_penalty_1
+        mse_2 = self.mse_loss(outputs[:,1], targets[:,1])
+        l1_penalty_2 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_2 = mse_2 + self.alpha * l1_penalty_2
+        return loss_1, loss_2,
+
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+for train_index, test_index in kf.split(X_train):
+    X_train_fold, X_test_fold = augmented_X_train[train_index], augmented_X_train[test_index]
+    Y_train_fold, Y_test_fold = augmented_Y_train[train_index], augmented_Y_train[test_index]
+    
+    model = SimpleRegressionModel(augmented_X_train.shape[1], augmented_Y_train.shape[1])
+    lasso_loss = LassoLoss(model, alpha=0.01)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    train_loss_lasso_1 = []
+    train_loss_1 = []
+    train_loss_lasso_2 = []
+    train_loss_2 = []
+    
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X_train_fold)
+
+        # Calculate loss with lasso
+        loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+        loss_lasso_1.backward()
+        optimizer.step()
+
+        # Calculate loss without lasso
+        loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0])
+        loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1])
+        optimizer.step()
+        
+        # Append the losses to the lists
+        train_loss_lasso_1.append(loss_lasso_1.item())
+        train_loss_1.append(loss_1.item())
+        train_loss_lasso_2.append(loss_lasso_2.item())
+        train_loss_2.append(loss_2.item())
+    
+        if (epoch+1) % 50 == 0:
+            print(f' Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 2): {loss_lasso_1.item():.4f}, Loss (MSE) (Factor 2): {loss_1.item():.4f}')
+            print(f'Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 3): {loss_lasso_2.item():.4f}, Loss (MSE) (Factor 3): {loss_2.item():.4f}')
+
+   
+    model.eval()
+    with torch.no_grad():
+        test_outputs = model(X_test_fold)
+        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
+        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
+        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
+                
+        print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
+        print(f'Test Loss (MSE) (Factor 2): {test_loss_2.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_2.item():.4f}')
+
+
+# Plot the training loss over epochs
+plt.plot(train_loss_lasso_1, label='MSE With Lasso Factor 2')
+plt.plot(train_loss_1, label='MSE Without Lasso Factor 2')
+plt.plot(train_loss_lasso_2, label='MSE With Lasso Factor 3')
+plt.plot(train_loss_2, label='MSE Without Lasso Factor 3')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Epochs')
+plt.legend()
+plt.show()
+
+all_kfold_aug = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2, test_loss_lasso_2]
+all_loss_kfold_aug = pd.DataFrame(all_kfold_aug).astype("float")
+print(all_loss_kfold_aug)
+
+
+
+### EVALUATE USING WORST GROUP ACCURACY ###
+#### IMPORT LIBRARIEES ####
+import pandas as pd
+import glob
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+
+#### DATA PREPROCESSING ####
+# Define the path to the CSV files
+path = 'data'  # Update this to your actual path
+csv_files = glob.glob(os.path.join(path, "*.csv"))
+
+def preprocess_data(file_path):
+    csv_files = glob.glob(os.path.join(path, "*.csv"))
+    dfs = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file)
+            if not df.empty:
+                # Rename the first column
+                first_column_name = df.columns[0]
+                df = df.rename(columns={first_column_name: 'userid'})
+                dfs.append(df)
+            else:
+                print(f"File {file} is empty.")
+
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
+
+    # Verify all DataFrames are read correctly
+    if not dfs:
+        print("No DataFrames to merge.")
+    else:
+        # Assuming 'common_column_name' is the common column used for merging
+        common_column = 'userid'  # This should match the renamed first column
+
+        # Merge DataFrames iteratively
+        merged_df = dfs[0]
+        for df in dfs[1:]:
+            if common_column in merged_df.columns and common_column in df.columns:
+                merged_df = pd.merge(merged_df, df, on=common_column)
+            else:
+                print(f"Common column '{common_column}' not found in one of the DataFrames.")
+                break
+
+    return merged_df
+
+#### CHANGE DATA TYPE TO TENSOR ####
+def dataframe_to_tensor_with_missing(df, target_column):
+    # Initialize LabelEncoder for string columns
+    label_encoders = {}
+    
+    # Create a dictionary to store tensor parts
+    tensor_parts = {}
+
+    # Exclude target column from features
+    features = df.drop(["Factor2","Factor3"], axis=1)
+
+    for column in features.columns:
+        if pd.api.types.is_numeric_dtype(features[column]):
+            # Fill missing values with mean or any strategy you prefer
+            features[column] = features[column].fillna(features[column].mean())
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values, dtype=torch.float32)
+        
+        elif pd.api.types.is_string_dtype(features[column]) or features[column].dtype == 'object':
+            # Fill missing values with a placeholder, e.g., 'missing'
+            features[column] = features[column].fillna('missing')
+            le = LabelEncoder()
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(le.fit_transform(features[column].values), dtype=torch.float32)
+                label_encoders[column] = le
+        
+        elif pd.api.types.is_datetime64_any_dtype(features[column]):
+            # Fill missing datetime values with a placeholder or strategy
+            features[column] = features[column].fillna(pd.Timestamp('1970-01-01'))
+            if not features[column].isnull().all():
+                tensor_parts[column] = torch.tensor(features[column].values.astype(np.int64) // 10**9, dtype=torch.float32)
+        
+        else:
+            raise ValueError(f"Unsupported column type: {features[column].dtype} in column {column}")
+
+    # Check if any tensors were created
+    if not tensor_parts:
+        raise ValueError("No valid columns found for conversion to tensors.")
+
+    # Stack tensors along the second dimension (i.e., columns)
+    tensors = torch.stack([tensor_parts[col] for col in features.columns if col in tensor_parts], dim=1)
+
+    # Get target variable tensor
+    target_tensor = torch.tensor(df[target_column].values, dtype=torch.float32)
+
+    return tensors, target_tensor, label_encoders
+
+
+df = pd.DataFrame(preprocess_data("data"))
+
+# Create age_group
+df.loc[df['age']<=19, 'age_groups'] = 'teenage'
+df.loc[df['age'].between(20,24), 'age_groups'] = 'young_adult'
+df.loc[df['age'].between(25,39), 'age_groups'] = 'adult'
+df.loc[df['age'].between(40,64), 'age_groups'] = 'older_adult'
+df.loc[df['age']>64, 'age_groups'] = 'seniors'
+age_group = torch.tensor(pd.Categorical(df['age_groups']).codes, dtype=torch.int64)
+df = df.drop(['age_groups'], axis=1)
+
+target_column = ["Factor2","Factor3"]
+features_tensor, target_tensor, encoders = dataframe_to_tensor_with_missing(df, target_column)
+
+# Split data into training and testing sets
+X_train, X_test, Y_train, Y_test, age_group_train, age_group_test = train_test_split(features_tensor, target_tensor, age_group, test_size=0.2, random_state=12345)
+
+print("X_train shape:", X_train.shape)
+print("X_test shape:", X_test.shape)
+print("Y_train shape:", Y_train.shape)
+print("Y_test shape:", Y_test.shape)
+
+# Function to augment data by adding Gaussian noise
+def augment_data(X, Y, num_augmentations=5, noise_std=0.1):
+    augmented_X = []
+    augmented_Y = []
+    
+    for _ in range(num_augmentations):
+        noise = torch.normal(mean=0, std=noise_std, size=X.shape)
+        augmented_X.append(X + noise)
+        augmented_Y.append(Y + noise[:, :Y.shape[1]])  # Apply noise to Y as well
+    
+    # Stack augmented data with the original data
+    augmented_X = torch.cat([X] + augmented_X, dim=0)
+    augmented_Y = torch.cat([Y] + augmented_Y, dim=0)
+    
+    return augmented_X, augmented_Y
+
+# Example data augmentation
+num_augmentations = 5  # Number of augmentations per original sample
+noise_std = 0.1  # Standard deviation of the noise
+
+augmented_X_train, augmented_Y_train = augment_data(X_train, Y_train, num_augmentations, noise_std)
+
+#### BASELINE MODEL ####
+# Compute the mean of Y_train for both outputs
+mean_f2_train = torch.mean(augmented_Y_train[:, 0])
+mean_f3_train = torch.mean(augmented_Y_train[:, 1])
+
+# Create predictions for the test set
+f2_pred = mean_f2_train.repeat(Y_test.shape[0])
+f3_pred = mean_f3_train.repeat(Y_test.shape[0])
+print(f'Mean Prediction for Factor 2: {mean_f2_train.item():.4f}')
+print(f'Mean Prediction for Factor 3: {mean_f3_train.item():.4f}')
+print(f'Test MSE Baseline (Factor 2): {mse_f2.item():.4f}')
+print(f'Test MSE Baseline (Factor 3): {mse_f3.item():.4f}')
+
+# Stack predictions to match the shape of Y_test
+predictions = torch.stack((f2_pred, f3_pred), dim=1)
+
+# Calculate MSE for the test set
+mse_f2 = F.mse_loss(predictions[:, 0], Y_test[:, 0])
+mse_f3 = F.mse_loss(predictions[:, 1], Y_test[:, 1])
+
+# Build a simple regression model
+class SimpleRegressionModel(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(SimpleRegressionModel, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim)
+        
+    def forward(self, x):
+        return self.linear(x)
+
+# Print the model to check its architecture
+print(model)
+
+# Customize loss function to lasso regression
+class LassoLoss(torch.nn.Module):
+    def __init__(self, model, alpha=1.0):
+        super(LassoLoss, self).__init__()
+        self.model = model
+        self.alpha = alpha
+        self.mse_loss = torch.nn.MSELoss()
+
+    def forward(self, outputs, targets):
+        mse_1 = self.mse_loss(outputs[:,0], targets[:,0])
+        l1_penalty_1 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_1 = mse_1 + self.alpha * l1_penalty_1
+        mse_2 = self.mse_loss(outputs[:,1], targets[:,1])
+        l1_penalty_2 = sum(param.abs().sum() for param in self.model.parameters())
+        loss_2 = mse_2 + self.alpha * l1_penalty_2
+        return loss_1, loss_2,
+
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+all_losses = []
+
+for train_index, test_index in kf.split(X_train):
+    X_train_fold, X_test_fold = augmented_X_train[train_index], augmented_X_train[test_index]
+    Y_train_fold, Y_test_fold = augmented_Y_train[train_index], augmented_Y_train[test_index]
+    age_groups_train_fold, age_groups_test_fold = age_group_train[train_index], age_group_train[test_index]
+
+    
+    model = SimpleRegressionModel(augmented_X_train.shape[1], augmented_Y_train.shape[1])
+    lasso_loss = LassoLoss(model, alpha=0.01)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    train_loss_lasso_1 = []
+    train_loss_1 = []
+    train_loss_lasso_2 = []
+    train_loss_2 = []
+    
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X_train_fold)
+
+        # Calculate loss with lasso
+        loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+        loss_lasso_1.backward()
+        optimizer.step()
+
+        # Calculate loss without lasso
+        loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0])
+        loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1])
+        optimizer.step()
+        
+        # Append the losses to the lists
+        train_loss_lasso_1.append(loss_lasso_1.item())
+        train_loss_1.append(loss_1.item())
+        train_loss_lasso_2.append(loss_lasso_2.item())
+        train_loss_2.append(loss_2.item())
+    
+        if (epoch+1) % 50 == 0:
+            print(f' Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 2): {loss_lasso_1.item():.4f}, Loss (MSE) (Factor 2): {loss_1.item():.4f}')
+            print(f'Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 3): {loss_lasso_2.item():.4f}, Loss (MSE) (Factor 3): {loss_2.item():.4f}')
+
+    # Evaluate the model on each subgroup in the test set
+    unique_groups = age_groups_test_fold.unique()
+    subgroup_losses = {}
+    
+    for group in unique_groups:
+        mask = (age_groups_test_fold == group)
+        model.eval()
+        with torch.no_grad():
+            outputs = model(X_test_fold[mask])
+            test_loss_1 = criterion(outputs[:,0], Y_test_fold[mask][:,0])
+            test_loss_2 = criterion(outputs[:,1], Y_test_fold[mask][:,1])
+            test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(outputs, Y_test_fold[mask])
+            subgroup_losses[group.item()] = (test_loss_1.item(), test_loss_2.item(), test_loss_lasso_1.item(), test_loss_lasso_2.item())
+    
+    all_losses.append(subgroup_losses)
+
+
+#    model.eval()
+#    with torch.no_grad():
+#        test_outputs = model(X_test_fold)
+#        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
+#        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
+#        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
+                
+    print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
+    print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
+    print(f'Test Loss (MSE) (Factor 2): {test_loss_2.item():.4f}')
+    print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_2.item():.4f}')
+
+
+# Plot the training loss over epochs
+plt.plot(train_loss_lasso_1, label='MSE With Lasso Factor 2')
+plt.plot(train_loss_1, label='MSE Without Lasso Factor 2')
+plt.plot(train_loss_lasso_2, label='MSE With Lasso Factor 3')
+plt.plot(train_loss_2, label='MSE Without Lasso Factor 3')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Over Epochs')
+plt.legend()
+plt.show()
+
+all_kfold_aug_worst = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2, test_loss_lasso_2]
+all_loss_kfold_aug_worst = pd.DataFrame(all_kfold_aug_worst).astype("float")
+print(all_loss_kfold_aug_worst)
+
