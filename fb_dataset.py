@@ -1,4 +1,4 @@
-### LDA ONLY AS PREDICTOR ###
+### PREDICTOR ONLY LDA 600 ###
 #### IMPORT LIBRARIEES ####
 import pandas as pd
 import torch
@@ -170,9 +170,7 @@ lda_only_loss = pd.DataFrame(lda_only).astype("float")
 print(lda_only_loss)
 
 
-
-
-### USED ALL PREDICTORS ###
+### USE ALL PREDICTORS ###
 #### IMPORT LIBRARIEES ####
 import pandas as pd
 import glob
@@ -416,8 +414,12 @@ plt.title('Training Loss Over Epochs')
 plt.legend()
 plt.show()
 
+all = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2, test_loss_lasso_2]
+all_loss = pd.DataFrame(all).astype("float")
+print(all_loss)
 
-### DIFFERENT PREDICTORS USING K_FOLD ###
+
+### USE K-FOLD ###
 #### IMPORT LIBRARIEES ####
 import pandas as pd
 import glob
@@ -630,10 +632,10 @@ for train_index, test_index in kf.split(X_train):
    
     model.eval()
     with torch.no_grad():
-        test_outputs = model(X_test_fold)
-        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
-        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
-        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
+        test_outputs = model(X_test)
+        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test)
+        test_loss_1 = criterion(test_outputs[:, 0], Y_test[:, 0])
+        test_loss_2 = criterion(test_outputs[:, 1], Y_test[:, 1])
                 
         print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
         print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
@@ -658,7 +660,7 @@ print(all_loss_kfold)
 
 
 
-### AUGMENT DATA FROM THE PREVIOUS SETTING ###
+### USE K-FOLD AND AUGMENT THE DATA ###
 #### IMPORT LIBRARIEES ####
 import pandas as pd
 import glob
@@ -799,10 +801,6 @@ noise_std = 0.1  # Standard deviation of the noise
 
 augmented_X_train, augmented_Y_train = augment_data(X_train, Y_train, num_augmentations, noise_std)
 
-print(f'Original X_train shape: {X_train.shape}')
-print(f'Augmented X_train shape: {augmented_X_train.shape}')
-print(f'Original Y_train shape: {Y_train.shape}')
-print(f'Augmented Y_train shape: {augmented_Y_train.shape}')
 
 #### BASELINE MODEL ####
 # Compute the mean of Y_train for both outputs
@@ -855,7 +853,7 @@ class LassoLoss(torch.nn.Module):
 
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-for train_index, test_index in kf.split(X_train):
+for train_index, test_index in kf.split(augmented_X_train):
     X_train_fold, X_test_fold = augmented_X_train[train_index], augmented_X_train[test_index]
     Y_train_fold, Y_test_fold = augmented_Y_train[train_index], augmented_Y_train[test_index]
     
@@ -897,10 +895,10 @@ for train_index, test_index in kf.split(X_train):
    
     model.eval()
     with torch.no_grad():
-        test_outputs = model(X_test_fold)
-        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
-        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
-        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
+        test_outputs = model(X_test)
+        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test)
+        test_loss_1 = criterion(test_outputs[:, 0], Y_test[:, 0])
+        test_loss_2 = criterion(test_outputs[:, 1], Y_test[:, 1])
                 
         print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
         print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
@@ -925,7 +923,7 @@ print(all_loss_kfold_aug)
 
 
 
-### EVALUATE USING WORST GROUP ACCURACY ###
+### USE K-FOLD, DATA AUGMENTATION, AND WORST-GROUP ACCURACY ###
 #### IMPORT LIBRARIEES ####
 import pandas as pd
 import glob
@@ -1031,20 +1029,27 @@ def dataframe_to_tensor_with_missing(df, target_column):
 
 df = pd.DataFrame(preprocess_data("data"))
 
-# Create age_group
-df.loc[df['age']<=19, 'age_groups'] = 'teenage'
-df.loc[df['age'].between(20,24), 'age_groups'] = 'young_adult'
-df.loc[df['age'].between(25,39), 'age_groups'] = 'adult'
-df.loc[df['age'].between(40,64), 'age_groups'] = 'older_adult'
-df.loc[df['age']>64, 'age_groups'] = 'seniors'
-age_group = torch.tensor(pd.Categorical(df['age_groups']).codes, dtype=torch.int64)
+# Fill NA values before adding age groups
+df['age'].fillna(-1, inplace=True)
+
+# Create age_group based on the age column
+df.loc[df['age'] <= 19, 'age_groups'] = 'teenage'
+df.loc[df['age'].between(20, 24), 'age_groups'] = 'young_adult'
+df.loc[df['age'].between(25, 39), 'age_groups'] = 'adult'
+df.loc[df['age'].between(40, 64), 'age_groups'] = 'older_adult'
+df.loc[df['age'] > 64, 'age_groups'] = 'seniors'
+
+# Convert age groups to categorical codes
+age_group_labels = ['teenage', 'young_adult', 'adult', 'older_adult', 'seniors']
+df['age_groups'] = pd.Categorical(df['age_groups'], categories=age_group_labels)
+age_groups = torch.tensor(df['age_groups'].cat.codes.values, dtype=torch.int64)
 df = df.drop(['age_groups'], axis=1)
 
 target_column = ["Factor2","Factor3"]
 features_tensor, target_tensor, encoders = dataframe_to_tensor_with_missing(df, target_column)
 
 # Split data into training and testing sets
-X_train, X_test, Y_train, Y_test, age_group_train, age_group_test = train_test_split(features_tensor, target_tensor, age_group, test_size=0.2, random_state=12345)
+X_train, X_test, Y_train, Y_test, age_groups_train, age_groups_test = train_test_split(features_tensor, target_tensor, age_groups, test_size=0.2, random_state=12345)
 
 print("X_train shape:", X_train.shape)
 print("X_test shape:", X_test.shape)
@@ -1059,7 +1064,7 @@ def augment_data(X, Y, num_augmentations=5, noise_std=0.1):
     for _ in range(num_augmentations):
         noise = torch.normal(mean=0, std=noise_std, size=X.shape)
         augmented_X.append(X + noise)
-        augmented_Y.append(Y + noise[:, :Y.shape[1]])  # Apply noise to Y as well
+        augmented_Y.append(Y + noise[:, :Y.shape[1]])  
     
     # Stack augmented data with the original data
     augmented_X = torch.cat([X] + augmented_X, dim=0)
@@ -1067,11 +1072,10 @@ def augment_data(X, Y, num_augmentations=5, noise_std=0.1):
     
     return augmented_X, augmented_Y
 
-# Example data augmentation
 num_augmentations = 5  # Number of augmentations per original sample
 noise_std = 0.1  # Standard deviation of the noise
-
 augmented_X_train, augmented_Y_train = augment_data(X_train, Y_train, num_augmentations, noise_std)
+age_groups_train_augmented = torch.cat([age_groups_train for _ in range(augmented_X_train.shape[0] // X_train.shape[0])])
 
 #### BASELINE MODEL ####
 # Compute the mean of Y_train for both outputs
@@ -1124,13 +1128,10 @@ class LassoLoss(torch.nn.Module):
 
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
-all_losses = []
-
-for train_index, test_index in kf.split(X_train):
+for train_index, test_index in kf.split(augmented_X_train):
     X_train_fold, X_test_fold = augmented_X_train[train_index], augmented_X_train[test_index]
     Y_train_fold, Y_test_fold = augmented_Y_train[train_index], augmented_Y_train[test_index]
-    age_groups_train_fold, age_groups_test_fold = age_group_train[train_index], age_group_train[test_index]
-
+    age_groups_train_fold, age_groups_test_fold = age_groups_train_augmented[train_index], age_groups_train_augmented[test_index]
     
     model = SimpleRegressionModel(augmented_X_train.shape[1], augmented_Y_train.shape[1])
     lasso_loss = LassoLoss(model, alpha=0.01)
@@ -1167,34 +1168,51 @@ for train_index, test_index in kf.split(X_train):
             print(f' Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 2): {loss_lasso_1.item():.4f}, Loss (MSE) (Factor 2): {loss_1.item():.4f}')
             print(f'Epoch [{epoch+1}/{epochs}], Loss (LASSO) (Factor 3): {loss_lasso_2.item():.4f}, Loss (MSE) (Factor 3): {loss_2.item():.4f}')
 
-    # Evaluate the model on each subgroup in the test set
-    unique_groups = age_groups_test_fold.unique()
-    subgroup_losses = {}
-    
-    for group in unique_groups:
-        mask = (age_groups_test_fold == group)
-        model.eval()
-        with torch.no_grad():
-            outputs = model(X_test_fold[mask])
-            test_loss_1 = criterion(outputs[:,0], Y_test_fold[mask][:,0])
-            test_loss_2 = criterion(outputs[:,1], Y_test_fold[mask][:,1])
-            test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(outputs, Y_test_fold[mask])
-            subgroup_losses[group.item()] = (test_loss_1.item(), test_loss_2.item(), test_loss_lasso_1.item(), test_loss_lasso_2.item())
-    
-    all_losses.append(subgroup_losses)
+    # Evaluation on the test set
+    model.eval()
+    with torch.no_grad():
+        test_outputs = model(X_test)
+        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test)
+        test_loss_1 = criterion(test_outputs[:, 0], Y_test[:, 0])
+        test_loss_2 = criterion(test_outputs[:, 1], Y_test[:, 1])
 
+        print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 2): {test_loss_lasso_1.item():.4f}')
+        print(f'Test Loss (MSE) (Factor 3): {test_loss_2.item():.4f}')
+        print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_2.item():.4f}')
 
-#    model.eval()
-#    with torch.no_grad():
-#        test_outputs = model(X_test_fold)
-#        test_loss_lasso_1, test_loss_lasso_2 = lasso_loss(test_outputs, Y_test_fold)
-#        test_loss_1 = criterion(test_outputs[:, 0], Y_test_fold[:, 0])
-#        test_loss_2 = criterion(test_outputs[:, 1], Y_test_fold[:, 1])
-                
-    print(f'Test Loss (MSE) (Factor 2): {test_loss_1.item():.4f}')
-    print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_1.item():.4f}')
-    print(f'Test Loss (MSE) (Factor 2): {test_loss_2.item():.4f}')
-    print(f'Test Loss (LASSO) (Factor 3): {test_loss_lasso_2.item():.4f}')
+    # Evaluate worst group accuracy
+    worst_group_accuracy_mse_f2 = {}
+    worst_group_accuracy_mse_f3 = {}
+    worst_group_accuracy_lasso_f2 = {}
+    worst_group_accuracy_lasso_f3 = {}
+    
+    model.eval()
+    with torch.no_grad():
+        for age_group in torch.unique(age_groups_test):
+            group_indices = (age_groups_test == age_group).nonzero(as_tuple=True)[0]
+            group_X_test = X_test[group_indices]
+            group_Y_test = Y_test[group_indices]
+    
+            group_test_outputs = model(group_X_test)
+            group_test_loss_1 = criterion(group_test_outputs[:, 0], group_Y_test[:, 0]).item()
+            group_test_loss_2 = criterion(group_test_outputs[:, 1], group_Y_test[:, 1]).item()
+            group_test_loss_lasso_1, group_test_loss_lasso_2 = lasso_loss(group_test_outputs, group_Y_test)
+            group_label = age_group_labels[age_group]
+            worst_group_accuracy_mse_f2[group_label] = group_test_loss_1 
+            worst_group_accuracy_mse_f3[group_label] = group_test_loss_1 
+            worst_group_accuracy_lasso_f2[group_label] = group_test_loss_lasso_1 
+            worst_group_accuracy_lasso_f3[group_label] = group_test_loss_lasso_2 
+    
+    # Print worst group accuracy
+    for group, loss in worst_group_accuracy_mse_f2.items():
+        print(f'Age Group: {group}, Test Loss (MSE) (Factor 2): {loss:.4f}')
+    for group, loss in worst_group_accuracy_mse_f3.items():
+        print(f'Age Group: {group}, Test Loss (MSE) (Factor 3): {loss:.4f}')
+    for group, loss in worst_group_accuracy_lasso_f2.items():
+        print(f'Age Group: {group}, Test Loss LASSO (MSE) (Factor 2): {loss:.4f}')
+    for group, loss in worst_group_accuracy_lasso_f3.items():
+        print(f'Age Group: {group}, Test Loss LASSO (MSE) (Factor 3): {loss:.4f}')
 
 
 # Plot the training loss over epochs
@@ -1212,3 +1230,11 @@ all_kfold_aug_worst = [mse_f2,test_loss_1,test_loss_lasso_1, mse_f3,test_loss_2,
 all_loss_kfold_aug_worst = pd.DataFrame(all_kfold_aug_worst).astype("float")
 print(all_loss_kfold_aug_worst)
 
+
+
+### SHOW THE DIFFERENCE ###
+# Create a table to show loss function
+model_loss = pd.concat([lda_only_loss, all_loss, all_loss_kfold, all_loss_kfold_aug,all_loss_kfold_aug_worst], ignore_index=True, axis=1)
+model_loss.columns = ['lda_only','all','all_kfold','all_kfold_aug','all_kfold_aug_worst']
+model_loss.index = ['mse baseline_factor2','loss_without_lasso_factor2', 'loss_with_lasso_factor2','mse baseline_factor3','loss_without_lasso_factor3', 'loss_with_lasso_factor3']
+print(model_loss)
