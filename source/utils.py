@@ -128,6 +128,17 @@ class LassoLoss(torch.nn.Module):
 
 
 
+def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha):
+    mse_loss = nn.MSELoss()
+    group_weights = torch.ones_like(age_groups, dtype=torch.float)
+    group_weights[age_groups == worst_group] = alpha  # Give higher weight to the worst group
+
+    loss_1 = (group_weights * mse_loss(outputs[:, 0], targets[:, 0])).mean()
+    loss_2 = (group_weights * mse_loss(outputs[:, 1], targets[:, 1])).mean()
+    return loss_1, loss_2
+
+
+
 def train_and_evaluate_aug_worst(X, Y, age_groups, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
 
     # Augment the data
