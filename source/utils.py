@@ -125,3 +125,369 @@ class LassoLoss(torch.nn.Module):
         l1_penalty_2 = sum(param.abs().sum() for param in self.model.parameters())
         loss_2 = mse_2 + self.alpha * l1_penalty_2
         return loss_1, loss_2,
+
+
+
+def train_and_evaluate_aug_worst(X, Y, age_groups, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+
+    # Augment the data
+    X_augmented, Y_augmented = augment_data(X, Y, num_augmentations, noise_std)
+    age_groups_augmented = torch.cat([age_groups for _ in range(X_augmented.shape[0] // features_tensor.shape[0])])
+    
+    # K-Fold Cross-Validation
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # Grid search for alpha
+    best_alpha = None
+    best_val_loss = float('inf')
+
+    for alpha in alpha_values:
+        val_losses = []
+
+        for train_index, val_index in kf.split(X_augmented):
+            X_train_fold, X_val_fold = X_augmented[train_index], X_augmented[val_index]
+            Y_train_fold, Y_val_fold = Y_augmented[train_index], Y_augmented[val_index]
+            age_groups_train_fold, age_groups_val_fold = age_groups_augmented[train_index], age_groups_augmented[val_index]
+    
+            model = SimpleRegressionModel(X_augmented.shape[1], Y_augmented.shape[1])
+            criterion = nn.MSELoss()
+            lasso_loss = LassoLoss(model, alpha=alpha)
+            optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+            epochs = 100
+            alpha_worst_group = 2.0  # Higher weight for the worst group
+    
+            for epoch in range(epochs):
+                model.train()
+                optimizer.zero_grad()
+                outputs = model(X_train_fold)
+                
+                # Calculate standard lasso loss
+                loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+    
+                # Identify worst-performing group during the current epoch
+                with torch.no_grad():
+                    worst_group_loss = float('-inf')
+                    worst_group = None
+                    for group in torch.unique(age_groups_train_fold):
+                        group_indices = (age_groups_train_fold == group).nonzero(as_tuple=True)[0]
+                        group_X = X_train_fold[group_indices]
+                        group_Y = Y_train_fold[group_indices]
+                        group_outputs = model(group_X)
+                        group_loss_1 = criterion(group_outputs[:, 0], group_Y[:, 0]).item()
+                        group_loss_2 = criterion(group_outputs[:, 1], group_Y[:, 1]).item()
+                        group_loss = max(group_loss_1, group_loss_2)
+                        if group_loss > worst_group_loss:
+                            worst_group_loss = group_loss
+                            worst_group = group.item()
+    
+                # Calculate weighted loss for the worst group
+                loss_weighted_1, loss_weighted_2 = compute_weighted_loss(outputs, Y_train_fold, age_groups_train_fold, worst_group, alpha_worst_group)
+                
+                # Combine standard lasso loss with weighted loss
+                total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5 + (loss_weighted_1 + loss_weighted_2) * 0.5
+                total_loss.backward()
+                optimizer.step()
+    
+            # Evaluate on validation fold
+            model.eval()
+            with torch.no_grad():
+                val_outputs = model(X_val_fold)
+                val_loss_lasso_1, val_loss_lasso_2 = lasso_loss(val_outputs, Y_val_fold)
+    
+            val_losses.append((val_loss_lasso_1.item() + val_loss_lasso_2.item()) / 2)
+    
+        avg_val_loss = np.mean(val_losses)
+        print(f'Alpha: {alpha}, Avg Validation Loss: {avg_val_loss:.4f}')
+    
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_alpha = alpha
+    
+    print(f'Best Alpha: {best_alpha}, Best Validation Loss: {best_val_loss:.4f}')
+    
+    # Use the best alpha for final model training and evaluation
+    final_model = SimpleRegressionModel(X_augmented.shape[1], Y_augmented.shape[1])
+    final_lasso_loss = LassoLoss(final_model, alpha=best_alpha)
+    final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
+    
+    # Train the final model using the best alpha
+    epochs = 500
+    
+    # Track losses for each factor with and without Lasso
+    losses = {
+        'factor_2_without_lasso': [],
+        'factor_3_without_lasso': [],
+        'factor_2_with_lasso': [],
+        'factor_3_with_lasso': []
+    }
+    
+    for train_index, val_index in kf.split(X_augmented):
+        X_train_fold, X_val_fold = X_augmented[train_index], X_augmented[val_index]
+        Y_train_fold, Y_val_fold = Y_augmented[train_index], Y_augmented[val_index]
+        age_groups_train_fold, age_groups_val_fold = age_groups_augmented[train_index], age_groups_augmented[val_index]
+    
+        for epoch in range(epochs):
+            final_model.train()
+            final_optimizer.zero_grad()
+            outputs = final_model(X_train_fold)
+            
+            # Calculate standard lasso loss
+            loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+    
+            # Identify worst-performing group during the current epoch
+            with torch.no_grad():
+                worst_group_loss = float('-inf')
+                worst_group = None
+                for group in torch.unique(age_groups_train_fold):
+                    group_indices = (age_groups_train_fold == group).nonzero(as_tuple=True)[0]
+                    group_X = X_train_fold[group_indices]
+                    group_Y = Y_train_fold[group_indices]
+                    group_outputs = final_model(group_X)
+                    group_loss_1 = criterion(group_outputs[:, 0], group_Y[:, 0]).item()
+                    group_loss_2 = criterion(group_outputs[:, 1], group_Y[:, 1]).item()
+                    group_loss = max(group_loss_1, group_loss_2)
+                    if group_loss > worst_group_loss:
+                        worst_group_loss = group_loss
+                        worst_group = group.item()
+    
+            # Calculate weighted loss for the worst group
+            loss_weighted_1, loss_weighted_2 = compute_weighted_loss(outputs, Y_train_fold, age_groups_train_fold, worst_group, alpha_worst_group)
+            
+            # Combine standard lasso loss with weighted loss
+            total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5 + (loss_weighted_1 + loss_weighted_2) * 0.5
+            total_loss.backward()
+            final_optimizer.step()
+    
+        # Evaluate on validation fold
+        final_model.eval()
+        with torch.no_grad():
+            val_outputs = final_model(X_val_fold)
+            loss_without_lasso_1 = criterion(val_outputs[:, 0], Y_val_fold[:, 0]).item()
+            loss_without_lasso_2 = criterion(val_outputs[:, 1], Y_val_fold[:, 1]).item()
+            loss_with_lasso_1, loss_with_lasso_2 = final_lasso_loss(val_outputs, Y_val_fold)
+            
+            losses['factor_2_without_lasso'].append(loss_without_lasso_1)
+            losses['factor_3_without_lasso'].append(loss_without_lasso_2)
+            losses['factor_2_with_lasso'].append(loss_with_lasso_1.item())
+            losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
+    
+    # Print the losses
+    print("Losses:")
+    print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
+    print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
+    print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
+    print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+
+
+
+def train_and_evaluate_aug(X, Y, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+
+    # Augment the data
+    X_augmented, Y_augmented = augment_data(X, Y, num_augmentations, noise_std)
+    
+    # K-Fold Cross-Validation
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # Grid search for alpha
+    best_alpha = None
+    best_val_loss = float('inf')
+    
+    for alpha in alpha_values:
+        val_losses = []
+    
+        for train_index, val_index in kf.split(X_augmented):
+            X_train_fold, X_val_fold = X_augmented[train_index], X_augmented[val_index]
+            Y_train_fold, Y_val_fold = Y_augmented[train_index], Y_augmented[val_index]
+    
+            model = SimpleRegressionModel(X_augmented.shape[1], Y_augmented.shape[1])
+            criterion = nn.MSELoss()
+            lasso_loss = LassoLoss(model, alpha=alpha)
+            optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+            for epoch in range(epochs):
+                model.train()
+                optimizer.zero_grad()
+                outputs = model(X_train_fold)
+                
+                # Calculate standard lasso loss
+                loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+                total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
+                total_loss.backward()
+                optimizer.step()
+                
+                # Clear gradients explicitly
+                optimizer.zero_grad()
+    
+            # Evaluate on validation fold
+            model.eval()
+            with torch.no_grad():
+                val_outputs = model(X_val_fold)
+                val_loss_lasso_1, val_loss_lasso_2 = lasso_loss(val_outputs, Y_val_fold)
+    
+            val_losses.append((val_loss_lasso_1.item() + val_loss_lasso_2.item()) / 2)
+    
+        avg_val_loss = np.mean(val_losses)
+        print(f'Alpha: {alpha}, Avg Validation Loss: {avg_val_loss:.4f}')
+    
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_alpha = alpha
+    
+    print(f'Best Alpha: {best_alpha}, Best Validation Loss: {best_val_loss:.4f}')
+    
+    # Use the best alpha for final model training and evaluation
+    final_model = SimpleRegressionModel(X_augmented.shape[1], Y_augmented.shape[1])
+    final_lasso_loss = LassoLoss(final_model, alpha=best_alpha)
+    final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
+    
+    # Track losses for each factor with and without Lasso
+    losses = {
+        'factor_2_without_lasso': [],
+        'factor_3_without_lasso': [],
+        'factor_2_with_lasso': [],
+        'factor_3_with_lasso': []
+    }
+    
+    for train_index, val_index in kf.split(X_augmented):
+        X_train_fold, X_val_fold = X_augmented[train_index], X_augmented[val_index]
+        Y_train_fold, Y_val_fold = Y_augmented[train_index], Y_augmented[val_index]
+    
+        for epoch in range(epochs):
+            final_model.train()
+            final_optimizer.zero_grad()
+            outputs = final_model(X_train_fold)
+            
+            # Calculate standard lasso loss
+            loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+            total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
+            total_loss.backward()
+            final_optimizer.step()
+            
+            # Clear gradients explicitly
+            final_optimizer.zero_grad()
+    
+        # Evaluate on validation fold
+        final_model.eval()
+        with torch.no_grad():
+            val_outputs = final_model(X_val_fold)
+            loss_without_lasso_1 = criterion(val_outputs[:, 0], Y_val_fold[:, 0]).item()
+            loss_without_lasso_2 = criterion(val_outputs[:, 1], Y_val_fold[:, 1]).item()
+            loss_with_lasso_1, loss_with_lasso_2 = final_lasso_loss(val_outputs, Y_val_fold)
+            
+            losses['factor_2_without_lasso'].append(loss_without_lasso_1)
+            losses['factor_3_without_lasso'].append(loss_without_lasso_2)
+            losses['factor_2_with_lasso'].append(loss_with_lasso_1.item())
+            losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
+    
+    # Print the losses
+    print("Losses:")
+    print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
+    print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
+    print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
+    print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+
+
+
+def train_and_evaluate(X, Y, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+    
+    # K-Fold Cross-Validation
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # Grid search for alpha
+    best_alpha = None
+    best_val_loss = float('inf')
+    
+    for alpha in alpha_values:
+        val_losses = []
+    
+        for train_index, val_index in kf.split(X):
+            X_train_fold, X_val_fold = X[train_index], X[val_index]
+            Y_train_fold, Y_val_fold = Y[train_index], Y[val_index]
+    
+            model = SimpleRegressionModel(X.shape[1], Y.shape[1])
+            criterion = nn.MSELoss()
+            lasso_loss = LassoLoss(model, alpha=alpha)
+            optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+            for epoch in range(epochs):
+                model.train()
+                optimizer.zero_grad()
+                outputs = model(X_train_fold)
+                
+                # Calculate standard lasso loss
+                loss_lasso_1, loss_lasso_2 = lasso_loss(outputs, Y_train_fold)
+                total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
+                total_loss.backward()
+                optimizer.step()
+                
+                # Clear gradients explicitly
+                optimizer.zero_grad()
+    
+            # Evaluate on validation fold
+            model.eval()
+            with torch.no_grad():
+                val_outputs = model(X_val_fold)
+                val_loss_lasso_1, val_loss_lasso_2 = lasso_loss(val_outputs, Y_val_fold)
+    
+            val_losses.append((val_loss_lasso_1.item() + val_loss_lasso_2.item()) / 2)
+    
+        avg_val_loss = np.mean(val_losses)
+        print(f'Alpha: {alpha}, Avg Validation Loss: {avg_val_loss:.4f}')
+    
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_alpha = alpha
+    
+    print(f'Best Alpha: {best_alpha}, Best Validation Loss: {best_val_loss:.4f}')
+    
+    # Use the best alpha for final model training and evaluation
+    final_model = SimpleRegressionModel(X.shape[1], Y.shape[1])
+    final_lasso_loss = LassoLoss(final_model, alpha=best_alpha)
+    final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
+    
+    # Track losses for each factor with and without Lasso
+    losses = {
+        'factor_2_without_lasso': [],
+        'factor_3_without_lasso': [],
+        'factor_2_with_lasso': [],
+        'factor_3_with_lasso': []
+    }
+    
+    for train_index, val_index in kf.split(X):
+        X_train_fold, X_val_fold = X[train_index], X[val_index]
+        Y_train_fold, Y_val_fold = Y[train_index], Y[val_index]
+    
+        for epoch in range(epochs):
+            final_model.train()
+            final_optimizer.zero_grad()
+            outputs = final_model(X_train_fold)
+            
+            # Calculate standard lasso loss
+            loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+            total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
+            total_loss.backward()
+            final_optimizer.step()
+            
+            # Clear gradients explicitly
+            final_optimizer.zero_grad()
+    
+        # Evaluate on validation fold
+        final_model.eval()
+        with torch.no_grad():
+            val_outputs = final_model(X_val_fold)
+            loss_without_lasso_1 = criterion(val_outputs[:, 0], Y_val_fold[:, 0]).item()
+            loss_without_lasso_2 = criterion(val_outputs[:, 1], Y_val_fold[:, 1]).item()
+            loss_with_lasso_1, loss_with_lasso_2 = final_lasso_loss(val_outputs, Y_val_fold)
+            
+            losses['factor_2_without_lasso'].append(loss_without_lasso_1)
+            losses['factor_3_without_lasso'].append(loss_without_lasso_2)
+            losses['factor_2_with_lasso'].append(loss_with_lasso_1.item())
+            losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
+    
+    # Print the losses
+    print("Losses:")
+    print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
+    print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
+    print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
+    print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
