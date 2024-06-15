@@ -5,13 +5,32 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import argparse
+import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold
 from datetime import datetime
-import matplotlib.pyplot as plt
-import numpy as np
 from utils import preprocess_data, dataframe_to_tensor_with_missing, SimpleRegressionModel, LassoLoss, compute_weighted_loss, train_and_evaluate_aug_worst, train_and_evaluate_aug, train_and_evaluate
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--alpha_values", type=float, default=0.01, help="Regularization strength for Lasso")
+    parser.add_argument("--k_folds", type=int, default=5, help="Number of K-Folds for cross-validation")
+    args = parser.parse_args()
+
+    alpha = args.alpha
+    k_folds = args.k_folds
+
+    # Call K-fold cross-validation
+    results = train_and_evaluate_aug_worst(features_tensor, target_tensor, age_groups, k=k_folds, alpha_values=alpha)
+    
+    for i, (train_loss, val_loss) in enumerate(results):
+        print(f"Fold {i+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
+
+if __name__ == "__main__":
+    main()
 
 # Step 1: Data preprocessing
 # Define the path to the CSV files
