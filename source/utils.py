@@ -128,7 +128,7 @@ class LassoLoss(torch.nn.Module):
 
 
 
-def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha):
+def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha_values):
     mse_loss = nn.MSELoss()
     group_weights = torch.ones_like(age_groups, dtype=torch.float)
     group_weights[age_groups == worst_group] = alpha  # Give higher weight to the worst group
@@ -139,14 +139,14 @@ def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha):
 
 
 
-def train_and_evaluate_aug_worst(X, Y, age_groups, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=1000):
 
     # Augment the data
     X_augmented, Y_augmented = augment_data(X, Y, num_augmentations, noise_std)
     age_groups_augmented = torch.cat([age_groups for _ in range(X_augmented.shape[0] // features_tensor.shape[0])])
     
     # K-Fold Cross-Validation
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    kf = KFold(n_splits=k, shuffle=True, random_state=42)
     
     # Grid search for alpha
     best_alpha = None
@@ -221,10 +221,7 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, num_augmentations=5, noise_st
     final_model = SimpleRegressionModel(X_augmented.shape[1], Y_augmented.shape[1])
     final_lasso_loss = LassoLoss(final_model, alpha=best_alpha)
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
-    
-    # Train the final model using the best alpha
-    epochs = 500
-    
+
     # Track losses for each factor with and without Lasso
     losses = {
         'factor_2_without_lasso': [],
@@ -292,13 +289,13 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, num_augmentations=5, noise_st
 
 
 
-def train_and_evaluate_aug(X, Y, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=1000):
 
     # Augment the data
     X_augmented, Y_augmented = augment_data(X, Y, num_augmentations, noise_std)
     
     # K-Fold Cross-Validation
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    kf = KFold(n_splits=k, shuffle=True, random_state=42)
     
     # Grid search for alpha
     best_alpha = None
@@ -400,10 +397,10 @@ def train_and_evaluate_aug(X, Y, num_augmentations=5, noise_std=0.01, alpha_valu
 
 
 
-def train_and_evaluate(X, Y, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
+def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=100):
     
     # K-Fold Cross-Validation
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    kf = KFold(n_splits=k, shuffle=True, random_state=42)
     
     # Grid search for alpha
     best_alpha = None
