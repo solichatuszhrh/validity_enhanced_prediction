@@ -53,21 +53,35 @@ def main():
     
     target_column = ["Factor2","Factor3"]
     features_tensor, target_tensor, encoders = dataframe_to_tensor_with_missing(df, target_column)
-    
+
+    X = features_tensor
+    Y = target_tensor
+
+    def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Set a specific seed
+    set_seed(42)
     
     # Step 2: Add MSE baseline
     # Compute the mean of Y_train for both outputs
-    mean_f2_train = torch.mean(Y_augmented[:, 0])
-    mean_f3_train = torch.mean(Y_augmented[:, 1])
+    mean_f2_train = torch.mean(Y[:, 0])
+    mean_f3_train = torch.mean(Y[:, 1])
     
     # Create predictions for the test set
-    f2_pred = mean_f2_train.repeat(Y_test.shape[0])
-    f3_pred = mean_f3_train.repeat(Y_test.shape[0])
+    f2_pred = mean_f2_train.repeat(Y.shape[0])
+    f3_pred = mean_f3_train.repeat(Y.shape[0])
     predictions = torch.stack((f2_pred, f3_pred), dim=1)
     
     # Calculate MSE for the test set
-    mse_f2 = F.mse_loss(predictions[:, 0], Y_test[:, 0])
-    mse_f3 = F.mse_loss(predictions[:, 1], Y_test[:, 1])
+    mse_f2 = F.mse_loss(predictions[:, 0], Y[:, 0])
+    mse_f3 = F.mse_loss(predictions[:, 1], Y[:, 1])
     print(f'Test MSE Baseline (Factor 2): {mse_f2.item():.4f}')
     print(f'Test MSE Baseline (Factor 3): {mse_f3.item():.4f}')
     
