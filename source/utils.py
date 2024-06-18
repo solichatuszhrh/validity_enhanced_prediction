@@ -238,6 +238,13 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
 
     # Track losses for each factor with and without Lasso
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
     losses = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
@@ -302,6 +309,28 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
     print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
     print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
 
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
 
 
 def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=1000):
@@ -338,7 +367,13 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
                 total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
                 total_loss.backward()
                 optimizer.step()
-                
+
+                # Append the losses to the lists
+                train_loss['loss_lasso_1_train'].append(loss_lasso_1.detach().cpu().numpy())
+                train_loss['loss_1_train'].append(loss_1)
+                train_loss['loss_lasso_2_train'].append(loss_lasso_2.detach().cpu().numpy())
+                train_loss['loss_2_train'].append(loss_2)
+
                 # Clear gradients explicitly
                 optimizer.zero_grad()
     
@@ -365,6 +400,13 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
     
     # Track losses for each factor with and without Lasso
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
     losses = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
@@ -386,7 +428,13 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
             total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
             total_loss.backward()
             final_optimizer.step()
-            
+
+            # Append the losses to the lists
+            train_loss['loss_lasso_1_train'].append(loss_lasso_1.detach().cpu().numpy())
+            train_loss['loss_1_train'].append(loss_1)
+            train_loss['loss_lasso_2_train'].append(loss_lasso_2.detach().cpu().numpy())
+            train_loss['loss_2_train'].append(loss_2)
+
             # Clear gradients explicitly
             final_optimizer.zero_grad()
     
@@ -409,6 +457,28 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
     print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
     print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
     print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
 
 
 
@@ -470,6 +540,13 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
     
     # Track losses for each factor with and without Lasso
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
     losses = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
@@ -491,7 +568,13 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
             total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
             total_loss.backward()
             final_optimizer.step()
-            
+
+            # Append the losses to the lists
+            train_loss['loss_lasso_1_train'].append(loss_lasso_1.detach().cpu().numpy())
+            train_loss['loss_1_train'].append(loss_1)
+            train_loss['loss_lasso_2_train'].append(loss_lasso_2.detach().cpu().numpy())
+            train_loss['loss_2_train'].append(loss_2)
+
             # Clear gradients explicitly
             final_optimizer.zero_grad()
     
@@ -514,3 +597,25 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
     print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
     print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
     print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
