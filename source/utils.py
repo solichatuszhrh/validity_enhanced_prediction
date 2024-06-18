@@ -180,7 +180,7 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
             lasso_loss = LassoLoss(model, alpha=alpha)
             optimizer = optim.Adam(model.parameters(), lr=0.001)
     
-            epochs = 100
+            epochs = 1000
             alpha_worst_group = 2.0  # Higher weight for the worst group
     
             for epoch in range(epochs):
