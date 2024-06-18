@@ -21,10 +21,10 @@ def main():
     parser.add_argument("--k_folds", type=int, default=5, help="Number of K-Folds for cross-validation")
     args = parser.parse_args()
 
-    alpha = args.alpha
+    alpha_values = args.alpha_values
     k_folds = args.k_folds
 
-    results = train_and_evaluate_aug_worst(features_tensor, target_tensor, age_groups, k=k_folds, alpha_values=alpha)
+    results = train_and_evaluate_aug_worst(features_tensor, target_tensor, age_groups, k=k_folds, alpha=alpha_values)
     
     for i, (train_loss, val_loss) in enumerate(results):
         print(f"Fold {i+1}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
