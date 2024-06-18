@@ -24,7 +24,6 @@ def main():
     alpha = args.alpha
     k_folds = args.k_folds
 
-    # Call K-fold cross-validation
     results = train_and_evaluate_aug_worst(features_tensor, target_tensor, age_groups, k=k_folds, alpha_values=alpha)
     
     for i, (train_loss, val_loss) in enumerate(results):
@@ -58,18 +57,8 @@ def main():
     X = features_tensor
     Y = target_tensor
 
-    def set_seed(seed):
-        
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
     # Set a specific seed
-    set_seed(42)
+    torch.manual_seed(123)
     
     # Step 2: Add MSE baseline
     # Compute the mean of Y_train for both outputs
