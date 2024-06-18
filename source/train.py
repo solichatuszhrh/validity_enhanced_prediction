@@ -12,6 +12,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold
 from datetime import datetime
+import random
 from utils import preprocess_data, dataframe_to_tensor_with_missing, SimpleRegressionModel, LassoLoss, compute_weighted_loss, train_and_evaluate_aug_worst, train_and_evaluate_aug, train_and_evaluate
 
 def main():
@@ -58,13 +59,14 @@ def main():
     Y = target_tensor
 
     def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+        
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     # Set a specific seed
     set_seed(42)
