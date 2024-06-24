@@ -14,6 +14,7 @@ from sklearn.model_selection import KFold
 from datetime import datetime
 
 def preprocess_data(file_path):
+    path = "../validity_enhanced_prediction/data"
     csv_files = glob.glob(os.path.join(path, "*.csv"))
     dfs = []
     for file in csv_files:
@@ -146,7 +147,7 @@ class LassoLoss(torch.nn.Module):
 def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha_values):
     mse_loss = nn.MSELoss()
     group_weights = torch.ones_like(age_groups, dtype=torch.float)
-    group_weights[age_groups == worst_group] = alpha  # Give higher weight to the worst group
+    group_weights[age_groups == worst_group] = alpha_values  # Give higher weight to the worst group
 
     loss_1 = (group_weights * mse_loss(outputs[:, 0], targets[:, 0])).mean()
     loss_2 = (group_weights * mse_loss(outputs[:, 1], targets[:, 1])).mean()
@@ -158,7 +159,7 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
 
     # Augment the data
     X_augmented, Y_augmented = augment_data(X, Y, num_augmentations, noise_std)
-    age_groups_augmented = torch.cat([age_groups for _ in range(X_augmented.shape[0] // features_tensor.shape[0])])
+    age_groups_augmented = torch.cat([age_groups for _ in range(X_augmented.shape[0] // X.shape[0])])
     
     # K-Fold Cross-Validation
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
@@ -180,7 +181,7 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
             lasso_loss = LassoLoss(model, alpha=alpha)
             optimizer = optim.Adam(model.parameters(), lr=0.001)
     
-            epochs = 100
+            epochs = 1000
             alpha_worst_group = 2.0  # Higher weight for the worst group
     
             for epoch in range(epochs):
@@ -238,7 +239,14 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
 
     # Track losses for each factor with and without Lasso
-    losses = {
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
+    losses_aug_worst = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
         'factor_2_with_lasso': [],
@@ -257,6 +265,8 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
             
             # Calculate standard lasso loss
             loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+            loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0]).item()
+            loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1]).item()
     
             # Identify worst-performing group during the current epoch
             with torch.no_grad():
@@ -290,17 +300,49 @@ def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noi
             loss_without_lasso_2 = criterion(val_outputs[:, 1], Y_val_fold[:, 1]).item()
             loss_with_lasso_1, loss_with_lasso_2 = final_lasso_loss(val_outputs, Y_val_fold)
             
-            losses['factor_2_without_lasso'].append(loss_without_lasso_1)
-            losses['factor_3_without_lasso'].append(loss_without_lasso_2)
-            losses['factor_2_with_lasso'].append(loss_with_lasso_1.item())
-            losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
+            losses_aug_worst['factor_2_without_lasso'].append(loss_without_lasso_1)
+            losses_aug_worst['factor_3_without_lasso'].append(loss_without_lasso_2)
+            losses_aug_worst['factor_2_with_lasso'].append(loss_with_lasso_1.item())
+            losses_aug_worst['factor_3_with_lasso'].append(loss_with_lasso_2.item())
     
     # Print the losses
     print("Losses:")
-    print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
-    print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
-    print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
-    print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+    print(f"Factor 2 without Lasso: {np.mean(losses_aug_worst['factor_2_without_lasso']):.4f}")
+    print(f"Factor 3 without Lasso: {np.mean(losses_aug_worst['factor_3_without_lasso']):.4f}")
+    print(f"Factor 2 with Lasso: {np.mean(losses_aug_worst['factor_2_with_lasso']):.4f}")
+    print(f"Factor 3 with Lasso: {np.mean(losses_aug_worst['factor_3_with_lasso']):.4f}")
+
+    mean_losses_aug_worst = {key: np.mean(value) for key, value in losses_aug_worst.items()}
+
+    # Store the loss
+    #kfold_aug_worst_f2 = [loss_without_lasso_1,loss_with_lasso_1]
+    #kfold_aug_worst_f3 = [loss_without_lasso_2,loss_with_lasso_2]
+
+
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    plt.ion()
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+    return mean_losses_aug_worst
 
 
 
@@ -338,7 +380,7 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
                 total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
                 total_loss.backward()
                 optimizer.step()
-                
+
                 # Clear gradients explicitly
                 optimizer.zero_grad()
     
@@ -365,7 +407,14 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
     
     # Track losses for each factor with and without Lasso
-    losses = {
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
+    losses_aug = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
         'factor_2_with_lasso': [],
@@ -383,10 +432,18 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
             
             # Calculate standard lasso loss
             loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+            loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0]).item()
+            loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1]).item()
             total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
             total_loss.backward()
             final_optimizer.step()
-            
+
+            # Append the losses to the lists
+            train_loss['loss_lasso_1_train'].append(loss_lasso_1.detach().cpu().numpy())
+            train_loss['loss_1_train'].append(loss_1)
+            train_loss['loss_lasso_2_train'].append(loss_lasso_2.detach().cpu().numpy())
+            train_loss['loss_2_train'].append(loss_2)
+
             # Clear gradients explicitly
             final_optimizer.zero_grad()
     
@@ -398,17 +455,48 @@ def train_and_evaluate_aug(X, Y, k=5, num_augmentations=5, noise_std=0.01, alpha
             loss_without_lasso_2 = criterion(val_outputs[:, 1], Y_val_fold[:, 1]).item()
             loss_with_lasso_1, loss_with_lasso_2 = final_lasso_loss(val_outputs, Y_val_fold)
             
-            losses['factor_2_without_lasso'].append(loss_without_lasso_1)
-            losses['factor_3_without_lasso'].append(loss_without_lasso_2)
-            losses['factor_2_with_lasso'].append(loss_with_lasso_1.item())
-            losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
+            losses_aug['factor_2_without_lasso'].append(loss_without_lasso_1)
+            losses_aug['factor_3_without_lasso'].append(loss_without_lasso_2)
+            losses_aug['factor_2_with_lasso'].append(loss_with_lasso_1.item())
+            losses_aug['factor_3_with_lasso'].append(loss_with_lasso_2.item())
     
     # Print the losses
-    print("Losses:")
-    print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
-    print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
-    print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
-    print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+    print("Losses (with augmentation):")
+    print(f"Factor 2 without Lasso: {np.mean(losses_aug['factor_2_without_lasso']):.4f}")
+    print(f"Factor 3 without Lasso: {np.mean(losses_aug['factor_3_without_lasso']):.4f}")
+    print(f"Factor 2 with Lasso: {np.mean(losses_aug['factor_2_with_lasso']):.4f}")
+    print(f"Factor 3 with Lasso: {np.mean(losses_aug['factor_3_with_lasso']):.4f}")
+
+    mean_losses_aug = {key: np.mean(value) for key, value in losses_aug.items()}
+
+    # Store the loss
+    #kfold_aug_f2 = [loss_without_lasso_1,loss_with_lasso_1]
+    #kfold_aug_f3 = [loss_without_lasso_2,loss_with_lasso_2]
+
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    plt.ion()
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+    return mean_losses_aug
 
 
 
@@ -470,6 +558,13 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
     final_optimizer = optim.Adam(final_model.parameters(), lr=0.001)
     
     # Track losses for each factor with and without Lasso
+    train_loss = {
+                'loss_lasso_1_train': [],
+                'loss_lasso_2_train': [],
+                'loss_1_train': [],
+                'loss_2_train': []
+            }
+    
     losses = {
         'factor_2_without_lasso': [],
         'factor_3_without_lasso': [],
@@ -488,10 +583,18 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
             
             # Calculate standard lasso loss
             loss_lasso_1, loss_lasso_2 = final_lasso_loss(outputs, Y_train_fold)
+            loss_1 = criterion(outputs[:, 0], Y_train_fold[:, 0]).item()
+            loss_2 = criterion(outputs[:, 1], Y_train_fold[:, 1]).item()
             total_loss = (loss_lasso_1 + loss_lasso_2) * 0.5
             total_loss.backward()
             final_optimizer.step()
-            
+
+            # Append the losses to the lists
+            train_loss['loss_lasso_1_train'].append(loss_lasso_1.detach().cpu().numpy())
+            train_loss['loss_1_train'].append(loss_1)
+            train_loss['loss_lasso_2_train'].append(loss_lasso_2.detach().cpu().numpy())
+            train_loss['loss_2_train'].append(loss_2)
+
             # Clear gradients explicitly
             final_optimizer.zero_grad()
     
@@ -509,8 +612,39 @@ def train_and_evaluate(X, Y, k=5, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], ep
             losses['factor_3_with_lasso'].append(loss_with_lasso_2.item())
     
     # Print the losses
-    print("Losses:")
+    print("Losses (without augmentation and without worst-group):")
     print(f"Factor 2 without Lasso: {np.mean(losses['factor_2_without_lasso']):.4f}")
     print(f"Factor 3 without Lasso: {np.mean(losses['factor_3_without_lasso']):.4f}")
     print(f"Factor 2 with Lasso: {np.mean(losses['factor_2_with_lasso']):.4f}")
     print(f"Factor 3 with Lasso: {np.mean(losses['factor_3_with_lasso']):.4f}")
+
+    mean_losses = {key: np.mean(value) for key, value in losses.items()}
+
+    # Store the loss
+    #kfold_f2 = [loss_without_lasso_1,loss_with_lasso_1]
+    #kfold_f3 = [loss_without_lasso_2,loss_with_lasso_2]
+
+    # Plot the losses
+    plt.figure(figsize=(12, 6))
+    plt.ion()
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(train_loss['loss_lasso_1_train'], label='Lasso Loss Factor 2')
+    plt.plot(train_loss['loss_1_train'], label='Loss Factor 2')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Lasso Loss over Iterations')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(train_loss['loss_lasso_2_train'], label='Lasso Loss Factor  3')
+    plt.plot(train_loss['loss_2_train'], label='Loss Factor 3')
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Standard Loss over Iterations')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+    return mean_losses
