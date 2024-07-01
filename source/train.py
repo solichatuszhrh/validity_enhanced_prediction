@@ -75,19 +75,20 @@ def main():
 
     
     # Step 3: Train and evaluate the models
-    result_1 = train_and_evaluate(features_tensor, target_tensor)
-    result_2 = train_and_evaluate_aug(features_tensor, target_tensor)
-    result_3 = train_and_evaluate_aug_worst(features_tensor, target_tensor, age_groups)
+    result_1 = train_and_evaluate_aug_worst(X, Y, age_groups, use_augmentation=False, use_worst_group=False)
+    result_2 = train_and_evaluate_aug_worst(X, Y, age_groups, use_augmentation=True, use_worst_group=False)
+    result_3 = train_and_evaluate_aug_worst(X, Y, age_groups, use_augmentation=False, use_worst_group=True)
+    result_4 = train_and_evaluate_aug_worst(X, Y, age_groups, use_augmentation=True, use_worst_group=True)
 
     # Step 4: Collect the results
     df0 = pd.DataFrame(results)
     df1 = pd.DataFrame([result_1])
     df2 = pd.DataFrame([result_2])
     df3 = pd.DataFrame([result_3])
-    df = pd.concat([df0,df1,df2,df3], ignore_index=True, axis=0)
+    df4 = pd.DataFrame([result_4])
+    df = pd.concat([df0,df1,df2,df3,df4], ignore_index=True, axis=0)
     #df.columns = ['Factor 2 without Lasso','Factor 3 without Lasso','Factor 2 with Lasso','Factor 3 with Lasso']
-    df.index = ['MSE baseline','Model with K-fold', 'Add data augmentation','Add worst-group accuracy']
-
+    df.index = ['MSE baseline','Model with K-fold', 'Add data augmentation','Add worst-group accuracy','Add data augmentation and worst-group accuracy']
 
     print(df)
     
