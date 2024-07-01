@@ -153,6 +153,7 @@ def compute_weighted_loss(outputs, targets, age_groups, worst_group, alpha_worst
     loss_2 = criterion(group_outputs[:, 1], group_targets[:, 1]) * alpha_worst_group
     return loss_1, loss_2
 
+
 def train_and_evaluate_aug_worst(X, Y, age_groups, k=5, num_augmentations=5, noise_std=0.1, alpha_values=[0.001, 0.01, 0.1, 1.0, 10.0], epochs=1000, use_augmentation=True, use_worst_group=True, alpha_worst_group_values=[0.01, 1.0]):
     if use_augmentation:
         # Augment the data
