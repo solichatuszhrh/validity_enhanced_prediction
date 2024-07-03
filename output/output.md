@@ -418,7 +418,7 @@ df2 = pd.DataFrame([result_2])
 df3 = pd.DataFrame([result_3])
 df4 = pd.DataFrame([result_4])
 df = pd.concat([df0,df1,df2,df3,df4], ignore_index=True, axis=0)
-df.index = ['MSE baseline','Model with K-fold', 'Add data augmentation','Add worst-group accuracy','Add data augmentation and worst-group accuracy']
+df.index = ['MSE baseline','Simple regression     ', 'Add data augmentation','Add worst-group accuracy','Add data augmentation and worst-group accuracy']
 print(df)
 
 ```
@@ -584,28 +584,28 @@ print(df)
 
                                                     factor_2_without_lasso  \
     MSE baseline                                                  0.824475   
-    Model with K-fold                                             0.821480   
+    Simple regression                                             0.821480   
     Add data augmentation                                         0.833788   
     Add worst-group accuracy                                      0.818727   
     Add data augmentation and worst-group accuracy                0.832551   
     
                                                     factor_3_without_lasso  \
     MSE baseline                                                  0.808444   
-    Model with K-fold                                             0.789954   
+    Simple regression                                             0.789954   
     Add data augmentation                                         0.815954   
     Add worst-group accuracy                                      0.757750   
     Add data augmentation and worst-group accuracy                0.813880   
     
                                                     factor_2_with_lasso  \
     MSE baseline                                               0.824475   
-    Model with K-fold                                          0.829605   
+    Simple regression                                          0.829605   
     Add data augmentation                                      0.835594   
     Add worst-group accuracy                                   0.839582   
     Add data augmentation and worst-group accuracy             0.834363   
     
                                                     factor_3_with_lasso  
     MSE baseline                                               0.808444  
-    Model with K-fold                                          0.798079  
+    Simple regression                                          0.798079  
     Add data augmentation                                      0.817760  
     Add worst-group accuracy                                   0.778605  
     Add data augmentation and worst-group accuracy             0.815693  
