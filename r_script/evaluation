@@ -1,0 +1,47 @@
+### EVALUATION OF THE PREDICTED SCORES OF THE SCHWARTZ HUMAN VALUES FROM MTMM MODEL
+
+# Extract predicted factor scores
+set.seed(123)
+#new_data <- full_data[,1:600]
+data_predict <- full_data[,601:612]
+colnames(data_predict) <-   c("uni_survey","tra_survey","pow_survey","uni_xgb","tra_xgb","pow_xgb","uni_nn","tra_nn","pow_nn","uni_rf","tra_rf","pow_rf")
+data_1 <- as.data.frame(full_data[,1:600])
+labels_1 <- (data_predict[,1:12])
+#labels_1 <- full_data[,c(604,605,606,610,611,612)]
+train_index1 <- sample(1:nrow(full_data), size = 0.75 * nrow(full_data))
+train_data1 <- as.matrix(data_1[train_index1, ])
+train_labels1 <- as.matrix(labels_1[train_index1,])
+test_data1 <- as.matrix(data_1[-train_index1, ])
+test_labels1 <- as.matrix(labels_1[-train_index1,])
+predicted_scores <- lavPredict(fit, newdata = data_predict)
+
+predict <- "
+  universalism =~ 1*uni_survey + uni_xgb + uni_rf
+  tradition =~ 1*tra_survey + tra_xgb + tra_rf
+  power =~ 1*pow_survey + pow_xgb + pow_rf
+  
+  survey =~ 1*uni_survey + 1*tra_survey + 1*pow_survey
+  xgb =~ 1*uni_xgb + 1*tra_xgb + 1*pow_xgb
+  rf =~ 1*uni_rf + 1*tra_rf + 1*pow_rf
+  
+  universalism ~~ tradition + power
+  tradition ~~ power
+  xgb ~~ rf
+"
+fit_predict <- lavaan(syn_predict, sample.cov = corr_3x3, 
+              sample.nobs = 374, 
+              auto.cov.lv.x = FALSE, 
+              auto.fix.first = TRUE, 
+              auto.var = TRUE,
+              estimator = 'ml')
+summary(fit_predict, standardized = TRUE, fit.measures = TRUE)
+cor(predicted_scores)
+
+# Assuming 'predicted_values' is from your MTMM model and 'actual_values' is in the hold-out test set
+actual_values <- full_data[,601:603]
+colMeans(actual_values)
+predicted_values <- predicted_scores[,1:3]
+mse <- mean((actual_values - predicted_values)^2)
+rmse <- sqrt(colMeans((actual_values - predicted_values)^2))
+mae <- mean(abs(actual_values - predicted_values))
+
