@@ -1,0 +1,118 @@
+all_data <- read.csv("Downloads/all_data-5.csv") #less data
+colnames(all_data) <- c("id","factor2","factor3","Tf_rf","Cf_rf","Tf","Ts","Cf","Cs","nn_tf","nn_cf","rf_tf","rf_cf","userid","country","religion","sex")
+all_data3 <- read.csv("Downloads/all_data-9.csv") #4 factors (bifactorQ)
+colnames(all_data3) <- c("id","factor2","factor3","f2_rf","f3_rf","f4_rf","f5_rf","f2_p","f2","f3_p","f3", "f4_p","f4","f5_p","f5","nn_f2","nn_f3","nn_f4","nn_f5","rf_f2","rf_f3","rf_f4","rf_f5","userid","country","religion","sex","age")
+all_data4 <- read.csv("Downloads/all_data-10.csv") #4 factors (promax)
+colnames(all_data4) <- c("id","factor2","factor3","f2_rf","f3_rf","f4_rf","f5_rf","f2_p","f2","f3_p","f3", "f4_p","f4","f5_p","f5","nn_f2","nn_f3","nn_f4","nn_f5","rf_f2","rf_f3","rf_f4","rf_f5","userid","country","religion","sex","age")
+
+library(dplyr)
+# two-higher model
+df_recoded <- all_data %>% 
+   mutate(usa = ifelse((country == "united states"), 1, 0),
+          religious = ifelse(religion %in% c("agnostic","atheist","none","undecided","unknown"), 0, 1))
+# four-higher model bifactorQ
+df_recoded3 <- all_data3 %>%
+   mutate(
+     usa = ifelse(is.na(country), NA, ifelse(country == "united states", 1, 0)),
+     religious = ifelse(is.na(religion), NA, ifelse(religion %in% c("agnostic", "atheist", "none", "undecided", "unknown"), 0, 1))
+   )
+# four-higher model promax
+df_recoded4 <- all_data4 %>%
+   mutate(
+     usa = ifelse(is.na(country), NA, ifelse(country == "united states", 1, 0)),
+     religious = ifelse(is.na(religion), NA, ifelse(religion %in% c("agnostic", "atheist", "none", "undecided", "unknown"), 0, 1))
+   )
+
+library(lavaan)
+# two-higher model (only NN, no covariates) -> NA for std error
+model_fix <- "
+  Cons =~ 1*Cs + Cf
+  Trans =~ 1*Ts + Tf
+  
+  Ms =~ 1*Cs + 1* Ts
+  Mf =~ 1*Cf + 1*Tf
+  
+  Cons ~~ Trans
+  Ms ~~ Mf
+"
+fit_fix <- cfa(model_fix, data = df_recoded, auto.fix.first = FALSE, std.lv = FALSE)
+summary(fit_fix, standardized = TRUE, fit.measures = TRUE)
+
+# two-higher model (only NN, with covariates) -> 2 negative variances
+model_fix_cov <- "
+  Cons =~ 1*Cs + Cf
+  Trans =~ 1*Ts + Tf
+  
+  Ms =~ 1*Cs + 1* Ts
+  Mf =~ 1*Cf + 1*Tf
+  
+  Cons ~ sex + religious +usa
+  Trans ~ sex + religious +usa
+  
+  Cons ~~ Trans
+  Ms ~~ Mf
+"
+fit_fix_cov <- cfa(model_fix_cov, data = df_recoded, auto.fix.first = FALSE, std.lv = FALSE)
+summary(fit_fix_cov, standardized = TRUE, fit.measures = TRUE)
+
+# two-higher model (NN and RF) -> NA std errors
+model_fix_3_method <- "
+  Cons =~ 1*Cs + Cf + Cf_rf
+  Trans =~ 1*Ts + Tf + Tf_rf
+  
+  Ms =~ 1*Cs + 1* Ts
+  Mf =~ 1*Cf + 1*Tf
+  Mf_rf =~ 1*Cf_rf + 1*Tf_rf
+  
+  Cons ~ sex + religious +usa
+  Trans ~ sex + religious +usa
+
+  Cons ~~ Trans
+  Ms ~~ Mf_rf + Mf
+  Mf ~~ Mf_rf
+"
+fit_fix_3_method <- cfa(model_fix_3_method, data = df_recoded, auto.fix.first = FALSE, std.lv = FALSE)
+summary(fit_fix_3_method, standardized = TRUE, fit.measures = TRUE)
+
+
+# four-higher model bifactorQ -> NA std errors
+model_fix_4 <- "
+  F2 =~ 1*f2 + f2_p + f2_rf
+  F3 =~ 1*f3 + f3_p + f3_rf
+  F4 =~ 1*f4 + f4_p + f3_rf
+  F5 =~ 1*f5 + f5_p + f5_rf
+  
+  Ms =~ 1*f2 + 1*f3 + 1*f4 + 1*f5
+  Mf =~ 1*f2_p + 1*f3_p + 1*f4_p + 1*f5_p
+  Mf_rf =~ 1*f2_rf + 1*f3_rf + 1*f4_rf + 1*f5_rf
+  
+  F2 ~~ F3 + F4 + F5
+  F3 ~~ F4 + F5
+  F4 ~~ F5
+  
+  Ms ~~ Mf_rf + Mf
+  Mf ~~ Mf_rf
+"
+fit_fix_4_bi <- cfa(model_fix_4, data = df_recoded3, auto.fix.first = FALSE, std.lv = FALSE)
+summary(fit_fix_4_bi, standardized = TRUE, fit.measures = TRUE)
+
+# fourhigher model promax -> cov not positive-definite
+model_fix_4 <- "
+  F2 =~ 1*f2 + f2_p + f2_rf
+  F3 =~ 1*f3 + f3_p + f3_rf
+  F4 =~ 1*f4 + f4_p + f3_rf
+  F5 =~ 1*f5 + f5_p + f5_rf
+  
+  Ms =~ 1*f2 + 1*f3 + 1*f4 + 1*f5
+  Mf =~ 1*f2_p + 1*f3_p + 1*f4_p + 1*f5_p
+  Mf_rf =~ 1*f2_rf + 1*f3_rf + 1*f4_rf + 1*f5_rf
+  
+  F2 ~~ F3 + F4 + F5
+  F3 ~~ F4 + F5
+  F4 ~~ F5
+  
+  Ms ~~ Mf_rf + Mf
+  Mf ~~ Mf_rf
+"
+fit_fix_4_pro <- cfa(model_fix_4, data = df_recoded4, auto.fix.first = FALSE, std.lv = FALSE)
+summary(fit_fix_4_pro, standardized = TRUE, fit.measures = TRUE)
