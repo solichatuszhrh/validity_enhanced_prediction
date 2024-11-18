@@ -1,3 +1,4 @@
+### READ DATASET
 all_data <- read.csv("Downloads/all_data-5.csv") #less data
 colnames(all_data) <- c("id","factor2","factor3","Tf_rf","Cf_rf","Tf","Ts","Cf","Cs","nn_tf","nn_cf","rf_tf","rf_cf","userid","country","religion","sex")
 all_data3 <- read.csv("Downloads/all_data-9.csv") #4 factors (bifactorQ)
@@ -6,6 +7,7 @@ all_data4 <- read.csv("Downloads/all_data-10.csv") #4 factors (promax)
 colnames(all_data4) <- c("id","factor2","factor3","f2_rf","f3_rf","f4_rf","f5_rf","f2_p","f2","f3_p","f3", "f4_p","f4","f5_p","f5","nn_f2","nn_f3","nn_f4","nn_f5","rf_f2","rf_f3","rf_f4","rf_f5","userid","country","religion","sex","age")
 
 library(dplyr)
+### RECODE DATA FOR MTMM MODELS
 # two-higher model
 df_recoded <- all_data %>% 
    mutate(usa = ifelse((country == "united states"), 1, 0),
@@ -23,6 +25,8 @@ df_recoded4 <- all_data4 %>%
      religious = ifelse(is.na(religion), NA, ifelse(religion %in% c("agnostic", "atheist", "none", "undecided", "unknown"), 0, 1))
    )
 
+
+### TRAINING MTMM MODELS
 library(lavaan)
 # two-higher model (only NN, no covariates) -> NA for std error
 model_fix <- "
